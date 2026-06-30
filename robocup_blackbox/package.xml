@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>robocup_blackbox</name>
+  <version>0.1.0</version>
+  <description>Multi-robot blackbox recording core with throttling, mcap direct write, and post-sync</description>
+  <maintainer email="jeung158@hanyang.ac.kr">robocup_match_analyze_tools</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <depend>ament_index_python</depend>
+  <depend>rclcpp</depend>
+  <depend>rclpy</depend>
+  <depend>rosbag2_cpp</depend>
+  <depend>rosbag2_storage_mcap</depend>
+  <depend>std_msgs</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>tf2_msgs</depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <depend>yaml-cpp</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

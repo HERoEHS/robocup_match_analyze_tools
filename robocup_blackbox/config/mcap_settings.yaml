@@ -1,0 +1,8 @@
+mcap:
+  chunk_size: 4194304          # 4MB
+  compression: "zstd"           # zstd | lz4 | none
+  compression_level: 3         # zstd: 1~22
+  force_flush_interval_sec: 5  # crash 시 손실 5초 이내
+  max_file_size: 2147483648    # 2GB → 자동 분할
+  use_message_stamps: true     # header.stamp 사용 (false면 receive_time)
+  max_bag_count: 10            # 보관할 최대 세션 수 (0 = 무제한)

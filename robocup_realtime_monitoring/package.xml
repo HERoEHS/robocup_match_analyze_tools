@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>robocup_realtime_monitoring</name>
+  <version>0.1.0</version>
+  <description>
+    RoboCup realtime monitoring tools.
+    - Strategy GUI: edit BT zone policies (dribble/kick/pass) on the court + live robot/ball overlay
+    - UDP sender: bridge ROS2 robot state topics to MessageV2 UDP broadcast (robocup_udp_sender)
+    The strategy GUI receives robot positions via UDP (UdpTeamListener) without any external sender dependency.
+  </description>
+  <maintainer email="jeung158@hanyang.ac.kr">robocup_match_analyze_tools</maintainer>
+  <license>BSD</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <depend>rclpy</depend>
+  <depend>std_srvs</depend>
+  <depend>robocup_msgs</depend>
+  <depend>ament_index_python</depend>
+
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -1,0 +1,196 @@
+version: 1
+field:
+  length_m: 14.0
+  width_m: 9.0
+  origin: center
+  line_width_m: 0.05
+  goal_line_width_m: 0.1
+  border_strip_m: 1.0
+  center_circle_r_m: 1.5
+  goal_area:
+    depth_m: 1.0
+    width_m: 4.0
+  penalty_area:
+    depth_m: 3.0
+    width_m: 6.0
+  penalty_mark_distance_m: 2.0
+  penalty_mark_diameter_m: 0.1
+  corner_arc_radius_m: 0.5
+  goal:
+    depth_m: 0.7
+    inner_width_m: 2.4
+    post_diameter_m: 0.1
+defaults:
+  global:
+    action: dribble
+    target: goal
+    xy: 7.6;0
+    note: Global fallback — when no global zone matches. Same direct goal target as
+      kick_corridor/goal_proximity. Shared by PlayKickoff solo / Attacker fallback /
+      Goalkeeper(no ally) fallback. Previous target=destination xy=1;0 incorrectly used
+      dribble safe value as kick; confirmed first 3 kicks not toward goal, so changed.
+  local:
+    action: dribble
+    target: destination
+    xy: 1;0
+    note: Local fallback — when no local zone matches
+zones:
+- id: bypass_obstacle_corridor
+  name: Obstacle bypass zone
+  type: rect
+  space: global
+  geometry:
+    x1: 1.5
+    y1: -3.5
+    x2: 7
+    y2: 3.5
+  action_policy:
+    action: none
+    note: No bypass in this area, go straight (IsRobotInRectArea condition)
+  bt_ref: BypassObstacleToGoal/IsRobotInRectArea
+  color: '#3498db'
+- id: kick_corridor
+  name: Obstacle-ignore kick zone
+  type: rect
+  space: global
+  geometry:
+    x1: 5.5
+    y1: -1.5
+    x2: 8
+    y2: 1.5
+  action_policy:
+    action: dribble
+    target: goal
+    xy: 7.6;0
+  bt_ref: OnBallCaptured/{Goalkeeper,Attacker}/KickCorridor
+  color: '#e74c3c'
+- id: attacker_left_side
+  name: Attacker left side dribble
+  type: rect
+  space: global
+  geometry:
+    x1: 5.5
+    y1: -6
+    x2: 8
+    y2: -1.5
+  action_policy:
+    action: dribble
+    target: destination
+    xy: 5.5;0
+  bt_ref: OnBallCaptured/Attacker/LeftSide
+  color: '#9b59b6'
+- id: attacker_right_side
+  name: Attacker right side dribble
+  type: rect
+  space: global
+  geometry:
+    x1: 5.5
+    y1: 1.5
+    x2: 8
+    y2: 6
+  action_policy:
+    action: dribble
+    target: destination
+    xy: 5.5;0
+  bt_ref: OnBallCaptured/Attacker/RightSide
+  color: '#9b59b6'
+- id: goal_proximity
+  name: Kick zone
+  type: circle
+  space: global
+  geometry:
+    cx: 7
+    cy: 0
+    r: 6
+  action_policy:
+    action: dribble
+    target: goal
+    xy: 7.6;0
+  bt_ref: OnBallCaptured/Attacker/GoalProximity
+  color: '#1abc9c'
+- id: own_half_return
+  name: Goalkeeper home return zone
+  type: rect
+  space: global
+  geometry:
+    x1: -6.5
+    y1: -2
+    x2: -4
+    y2: 2
+  action_policy:
+    action: move_to
+    target: set_point
+    xy: -5.5;0
+    note: 'Goalkeeper set point (sim_config.yaml: set_points.goalkeeper)'
+  bt_ref: OnBallCaptured/SafeZone
+  color: '#95a5a6'
+- id: obstacle_bypass_range
+  name: Far obstacle detection (bypass plan)
+  type: rect
+  space: local
+  geometry:
+    x1: 0
+    y1: -0.6
+    x2: 3
+    y2: 0.6
+  action_policy:
+    action: none
+    note: Detection only — for bypass decision. Long (3m) to account for orbital_b TurnTo time.
+  bt_ref: DetectObstacleBypassRange
+  color: '#f39c12'
+- id: obstacle_close_front
+  name: Close obstacle detection (urgent)
+  type: rect
+  space: local
+  geometry:
+    x1: 0
+    y1: -0.25
+    x2: 1.2
+    y2: 0.25
+  action_policy:
+    action: none
+    note: Detection only — narrow and short (1.2m × 0.5m). Kick/dribble branch guard.
+  bt_ref: DetectObstacleCloseFront
+  color: '#c0392b'
+- id: own_half_ball_zone
+  name: Own half ball zone
+  type: rect
+  space: global
+  geometry:
+    x1: -8
+    y1: -6
+    x2: 0
+    y2: 6
+  action_policy:
+    action: none
+    note: Detection only — determines if ball is in own half (x<0).
+  bt_ref: PlaySupportPosition
+  color: '#34495e'
+- id: goalkeeper_active_half
+  name: Goalkeeper active zone (ball position)
+  type: rect
+  space: global
+  geometry:
+    x1: -7
+    y1: -5
+    x2: -3
+    y2: 5
+  action_policy:
+    action: none
+    note: Detection only — rear zone for deciding if goalkeeper goes out to capture ball.
+  bt_ref: PlayGoalkeeper
+  color: '#7f8c8d'
+- id: capture_local_box
+  name: Pre-capture local box
+  type: rect
+  space: local
+  geometry:
+    x1: 0
+    y1: -1
+    x2: 1
+    y2: 1
+  action_policy:
+    action: none
+    note: Detection only — TryCaptureBall branch. Simultaneous obstacle/ball query.
+  bt_ref: TryCaptureBall/CapturePath
+  color: '#16a085'

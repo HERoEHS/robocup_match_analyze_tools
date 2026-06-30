@@ -1,0 +1,50 @@
+output_dir: "~/blackbox_data/strategy_gui_sim_split"
+enable_live_stream: false
+timer_period_ms: 20.0
+
+topics:
+  - topic: "/robocup_2/localization/pose"
+    output_topic: "/robocup/localization/pose"
+    hz: 10.0
+    queue_size: 200
+  - topic: "/robocup_2/destination"
+    output_topic: "/robocup/destination"
+    hz: 10.0
+    queue_size: 200
+  - topic: "/robocup_2/pass_target"
+    output_topic: "/robocup/pass_target"
+    hz: 10.0
+    queue_size: 200
+  - topic: "/robocup_2/detected_objects"
+    output_topic: "/robocup/detected_objects"
+    hz: 10.0
+    queue_size: 200
+  - topic: "/robocup_2/current_bt_node"
+    output_topic: "/robocup/current_bt_node"
+    hz: 10.0
+    queue_size: 50
+  - topic: "/robocup_2/game_control_data"
+    output_topic: "/robocup/game_control_data"
+    hz: 10.0
+    queue_size: 50
+  - topic: "/robocup_2/cooperative_perception/enemies"
+    output_topic: "/robocup/cooperative_perception/enemies"
+    hz: 10.0
+    queue_size: 200
+  - topic: "/robocup_2/udp/data"
+    output_topic: "/robocup/udp/data"
+    hz: 10.0
+    queue_size: 200
+    write_all_buffered: true
+  - topic: "/robocup_2/lifted"
+    output_topic: "/robocup/lifted"
+    hz: 10.0
+    queue_size: 50
+  - topic: "/robocup_2/localization/result_with_cov"
+    output_topic: "/robocup/localization/result_with_cov"
+    hz: 10.0
+    queue_size: 200
+  - topic: "/robocup_2/rl_vel_cmd"
+    output_topic: "/robocup/rl_vel_cmd"
+    hz: 10.0
+    queue_size: 200

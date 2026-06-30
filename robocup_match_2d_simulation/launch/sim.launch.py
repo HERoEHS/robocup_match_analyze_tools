@@ -1,0 +1,80 @@
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, LogInfo
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+
+
+def generate_launch_description():
+    return LaunchDescription([
+        DeclareLaunchArgument('num_robots',   default_value='3',          description='Number of simulated robots (1~7)'),
+        DeclareLaunchArgument('num_opponents', default_value='3',         description='Number of simulated opponent robots (0~3)'),
+        DeclareLaunchArgument('team_number',  default_value='25',         description='UDP port = 10000 + team_number'),
+        DeclareLaunchArgument('opponent_team_number', default_value='26', description='Opponent team number for legacy game-controller'),
+        DeclareLaunchArgument('inet_address', default_value='127.0.0.1',  description='UDP destination (broadcast: 192.168.218.255)'),
+        DeclareLaunchArgument('send_interval_ms', default_value='100',    description='UDP send interval in ms'),
+        DeclareLaunchArgument('ui_port',      default_value='8095',       description='Dedicated 2D UI port'),
+        DeclareLaunchArgument('field_length', default_value='14.0',       description='Field length in meters'),
+        DeclareLaunchArgument('field_width',  default_value='9.0',        description='Field width in meters'),
+        DeclareLaunchArgument('override_duration_sec', default_value='3.0', description='Duration to hold manual pose override (seconds)'),
+        DeclareLaunchArgument('publish_udp', default_value='true',        description='Whether to use the built-in UDP MessageV2 broadcast'),
+        DeclareLaunchArgument('publish_legacy_topics', default_value='true', description='Whether to publish legacy sender input topics'),
+        DeclareLaunchArgument('legacy_topic_robot_id', default_value='1', description='Ally robot ID to reflect in legacy topics'),
+        DeclareLaunchArgument(
+            'legacy_topic_robot_ids',
+            default_value='1,2,3',
+            description='Comma-separated legacy topic robot IDs. If empty, uses only legacy_topic_robot_id.',
+        ),
+        DeclareLaunchArgument('use_external_gc', default_value='true', description='Whether to subscribe to real RoboCup Game Controller ROS topics'),
+        DeclareLaunchArgument('external_gc_timeout_sec', default_value='1.0', description='External GC freshness timeout (seconds)'),
+        DeclareLaunchArgument(
+            'external_gc_topics',
+            default_value='',
+            description='Comma-separated GC topic list. If empty, auto-subscribes to /robocup and /robocup_N',
+        ),
+        DeclareLaunchArgument('require_gc_for_motion', default_value='true', description='Whether to lock autonomous motion until external GC becomes active'),
+        DeclareLaunchArgument('direct_gc_required_for_motion', default_value='false', description='Whether to unlock autonomous motion only when a direct GC UDP packet arrives'),
+        DeclareLaunchArgument('receive_gc_direct_udp', default_value='true', description='Whether the sim directly receives Game Controller UDP (3838)'),
+        DeclareLaunchArgument('publish_gc_ros_topics', default_value='true', description='Whether to republish directly received GC to /robocup/.../game_control_data'),
+        DeclareLaunchArgument('game_controller_address', default_value='', description='Target IP for GC return (3939). If empty, uses the last GC sender IP.'),
+        DeclareLaunchArgument('game_controller_data_port', default_value='3838', description='UDP receive port for Game Controller data'),
+        DeclareLaunchArgument('game_controller_return_port', default_value='3939', description='UDP send port for Game Controller return'),
+        DeclareLaunchArgument('gc_udp_poll_interval_ms', default_value='50', description='Direct GC UDP polling interval in ms'),
+        DeclareLaunchArgument('gc_allowed_source_ip', default_value='127.0.0.1', description='Allowed GC UDP sender IP. If empty, all sources are accepted.'),
+
+        LogInfo(msg=['[robocup_match_2d_simulation] 2D UI → http://localhost:', LaunchConfiguration('ui_port')]),
+
+        Node(
+            package='robocup_match_2d_simulation',
+            executable='robocup_match_2d_simulation',
+            name='robocup_match_2d_simulation',
+            output='screen',
+            parameters=[{
+                'num_robots':           LaunchConfiguration('num_robots'),
+                'num_opponents':        LaunchConfiguration('num_opponents'),
+                'team_number':          LaunchConfiguration('team_number'),
+                'opponent_team_number': LaunchConfiguration('opponent_team_number'),
+                'inet_address':         LaunchConfiguration('inet_address'),
+                'send_interval_ms':     LaunchConfiguration('send_interval_ms'),
+                'ui_port':              LaunchConfiguration('ui_port'),
+                'field_length':         LaunchConfiguration('field_length'),
+                'field_width':          LaunchConfiguration('field_width'),
+                'override_duration_sec': LaunchConfiguration('override_duration_sec'),
+                'publish_udp':          LaunchConfiguration('publish_udp'),
+                'publish_legacy_topics': LaunchConfiguration('publish_legacy_topics'),
+                'legacy_topic_robot_id': LaunchConfiguration('legacy_topic_robot_id'),
+                'legacy_topic_robot_ids': LaunchConfiguration('legacy_topic_robot_ids'),
+                'use_external_gc':      LaunchConfiguration('use_external_gc'),
+                'external_gc_timeout_sec': LaunchConfiguration('external_gc_timeout_sec'),
+                'external_gc_topics':   LaunchConfiguration('external_gc_topics'),
+                'require_gc_for_motion': LaunchConfiguration('require_gc_for_motion'),
+                'direct_gc_required_for_motion': LaunchConfiguration('direct_gc_required_for_motion'),
+                'receive_gc_direct_udp': LaunchConfiguration('receive_gc_direct_udp'),
+                'publish_gc_ros_topics': LaunchConfiguration('publish_gc_ros_topics'),
+                'game_controller_address': LaunchConfiguration('game_controller_address'),
+                'game_controller_data_port': LaunchConfiguration('game_controller_data_port'),
+                'game_controller_return_port': LaunchConfiguration('game_controller_return_port'),
+                'gc_udp_poll_interval_ms': LaunchConfiguration('gc_udp_poll_interval_ms'),
+                'gc_allowed_source_ip':   LaunchConfiguration('gc_allowed_source_ip'),
+            }],
+        ),
+    ])

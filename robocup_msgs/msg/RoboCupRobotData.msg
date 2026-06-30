@@ -1,0 +1,10 @@
+std_msgs/Header header
+std_msgs/String state
+robocup_msgs/ProtoBufRobotData current_pose
+geometry_msgs/Pose2D walk_command
+robocup_msgs/ProtoBufRobotData target_pose
+geometry_msgs/Pose2D kick_target
+robocup_msgs/ProtoBufBallData ball
+robocup_msgs/ProtoBufRobotData[] others
+std_msgs/Int16 pass_sequence
+std_msgs/Bool penalty

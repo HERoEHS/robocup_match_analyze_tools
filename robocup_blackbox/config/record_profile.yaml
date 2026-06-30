@@ -1,0 +1,79 @@
+output_dir: "~/blackbox_data" #"~/.ros/bb"
+enable_live_stream: false
+timer_period_ms: 10.0
+
+topics:
+  # For Control
+  - topic: "/tf"
+    hz: 50.0
+  - topic: "/joint_states"
+    hz: 50.0
+    queue_size: 500
+  - topic: "/fsr/data"
+    hz: 50.0
+    queue_size: 500
+  - topic: "/nav/filtered_imu/data"
+    hz: 50.0
+    queue_size: 500
+  - topic: "/robocup/robot_state"
+    hz: 60.0
+    queue_size: 500
+  - topic: "/robocup/joint_command"
+    hz: 50.0
+    queue_size: 500
+  - topic: "/robocup/command"
+    hz: 50.0
+  - topic: "/diagnostics"
+    hz: 50.0
+  - topic: "/process_duration_ms"
+    hz: 50.0
+  - topic: "/robocup/rl_vel_cmd"
+    hz: 50.0
+
+  # For Strategy analysis / replay topics
+  - topic: "/robocup/game_control_data"
+    hz: 50.0
+    queue_size: 50
+  - topic: "/robocup/localization/pose"
+    hz: 50.0
+    queue_size: 200
+  - topic: "/robocup/destination"
+    hz: 50.0
+    queue_size: 200
+  - topic: "/robocup/pass_target"
+    hz: 50.0
+    queue_size: 200
+  - topic: "/robocup/detected_objects"
+    hz: 50.0
+    queue_size: 200
+  - topic: "/robocup/current_bt_node"
+    hz: 50.0
+    queue_size: 50
+  - topic: "/robocup/cooperative_perception/enemies"
+    hz: 50.0
+    queue_size: 200
+  - topic: "/robocup/udp/data"
+    hz: 0.0
+    queue_size: 200
+  - topic: "/robocup/lifted"
+    hz: 50.0
+    queue_size: 50
+  - topic: "/robocup/localization/result_with_cov"
+    hz: 50.0
+    queue_size: 200
+  - topic: "/robocup/debug_whistle"
+    hz: 10.0
+    queue_size: 200
+  - topic: "/robocup/whistle"
+    hz: 10.0
+    queue_size: 200
+
+  # For Vision
+  - topic: "/robocup/localization/direction"
+    hz: 5.0
+  - topic: "/robocup/vision/direction"
+    hz: 5.0
+
+  # For RL
+  - topic: "/robocup/fall_prediction"
+    hz: 50.0

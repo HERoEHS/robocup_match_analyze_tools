@@ -1,0 +1,35 @@
+# robocup_match_2d_simulation configuration
+# Adjust these values to match your robot's actual parameters.
+
+# Game phase set points [x_m, y_m, theta_rad]
+set_points:
+  goalkeeper:        [-5.5,  0.0, 0.0]
+  kickoff_primary:   [-1.0,  0.0, 0.0]
+  defense_primary:   [-2.0,  0.0, 0.0]
+  kickoff_secondary: [-1.5,  2.0, 0.0]
+  defense_secondary: [-2.5,  2.0, 0.0]
+
+# Motion thresholds (meters, unless noted)
+motion:
+  arrive_threshold:        0.25
+  ball_capture_threshold:  0.22
+  defense_offset:          1.8
+  pass_offset:             4.0
+  dribble_offset:          0.3
+  orbital_radius:          0.35
+  goal_half_width:         1.1
+  ball_approach_offset:    0.22
+  center_circle_radius:    1.5
+  center_circle_margin:    0.3
+  block_goal_offset:       1.5
+  keeper_rush_offset:      3.5
+  block_deadband:          0.1
+  dribble_quit_threshold:  0.3
+  pass_max_distance:       4.0
+  goal_aim_min_angle_deg:  10.0
+
+# Initial robot roles for simulation
+# Role codes: 1=forward, 2=goalkeeper, 3=defender
+simulation_roles:
+  - player_number: 1
+    role: 2

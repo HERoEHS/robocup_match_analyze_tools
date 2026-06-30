@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Strategy Analyzer</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <div id="header-top">
+      <h1><span class="brand">Strategy Analyzer</span></h1>
+      <div id="header-top-right">
+        <div id="settings-wrap">
+          <button id="btn-settings-toggle" aria-expanded="false" title="Settings" data-tip-ko="분석 파라미터 설정 (점유 거리·홀드 시간)" data-tip-en="Configure analysis parameters">⚙</button>
+          <div id="settings-body" hidden>
+            <div class="settings-group">
+              <label class="settings-label" for="input-possession-dist" data-i18n="settingsPossessionDist">점유 판정 거리</label>
+              <div class="settings-row">
+                <input id="input-possession-dist" type="number" min="0.05" max="2.0" step="0.05" value="0.50" data-tip-ko="공에서 이 거리 이내의 로봇이 점유 중으로 판정됩니다 (0.05~2.0m)" data-tip-en="Robots within this distance of the ball are considered in possession (0.05–2.0m)">
+                <span class="settings-unit">m</span>
+              </div>
+              <p class="settings-hint" data-i18n="settingsPossessionDistHint">공에서 이 거리 이내의 로봇이 공을 점유 중으로 판정</p>
+            </div>
+            <div class="settings-group">
+              <label class="settings-label" for="input-possession-hold" data-i18n="settingsPossessionHold">최소 점유 지속 시간</label>
+              <div class="settings-row">
+                <input id="input-possession-hold" type="number" min="0.1" max="5.0" step="0.1" value="0.10" data-tip-ko="이 시간 이상 유지된 점유 전환만 턴오버로 카운트합니다 (0.1~5.0s)" data-tip-en="Only possession changes held for at least this long are counted as turnovers (0.1–5.0s)">
+                <span class="settings-unit">s</span>
+              </div>
+              <p class="settings-hint" data-i18n="settingsPossessionHoldHint">이 시간 이상 유지된 전환만 턴오버로 카운트</p>
+            </div>
+            <button id="btn-settings-apply" data-i18n="settingsApply" data-tip-ko="변경된 설정으로 재분석 실행" data-tip-en="Re-analyze with updated settings">적용</button>
+          </div>
+        </div>
+        <span id="team-picker-wrap" hidden style="display:inline-flex;align-items:center;gap:4px;">
+          <span id="team-picker-label" style="font-size:0.75rem;color:var(--muted,#94a3b8);">Our Team:</span>
+          <select id="team-picker-select" style="font-size:0.75rem;background:var(--bg2,#1e293b);color:var(--text,#e2e8f0);border:1px solid var(--border,#334155);border-radius:4px;padding:2px 6px;cursor:pointer;" data-tip-ko="분석할 우리팀 번호 선택 (볼 소유권 판정에 사용)" data-tip-en="Select our team number for possession analysis">
+            <option value="0">Select team</option>
+          </select>
+        </span>
+        <button id="btn-lang" title="Korean / English" data-tip-ko="언어 변경 (한국어 / English)" data-tip-en="Switch language (Korean / English)">한국어</button>
+      </div>
+    </div>
+
+    <div id="path-bar">
+      <span class="path-icon">📁</span>
+      <input id="path-input" type="text" spellcheck="false" autocomplete="off">
+      <button id="btn-path-apply" data-i18n="btnPathApply" data-tip-ko="입력한 경로 적용" data-tip-en="Apply entered path">적용</button>
+      <button id="btn-refresh" data-i18n="btnRefresh" data-tip-ko="파일 목록 새로고침" data-tip-en="Refresh file list">새로고침</button>
+      <button id="btn-toggle-browser" data-tip-ko="파일 브라우저 열기/닫기" data-tip-en="Toggle file browser">파일 선택 ▾</button>
+      <button id="btn-load" data-i18n="btnLoad" data-tip-ko="선택한 MCAP 파일 불러오기" data-tip-en="Load selected MCAP file">불러오기</button>
+      <button id="btn-download" data-i18n="btnDownload" disabled data-tip-ko="선택한 파일들을 하나로 병합하여 다운로드" data-tip-en="Merge and download selected files">병합 다운로드</button>
+      <span id="session-info" class="muted"></span>
+    </div>
+    <div id="load-progress-wrap" style="display:none">
+      <div id="load-spinner"></div>
+      <span id="load-progress-label"></span>
+    </div>
+
+    <div id="file-browser">
+      <div id="file-browser-empty" class="muted" data-i18n="fileBrowserEmpty">경로를 설정하면 파일 목록이 표시됩니다.</div>
+    </div>
+  </header>
+
+  <main>
+    <section id="court-wrap">
+      <div id="toolbar">
+        <span><span data-i18n="labelTime">시간</span>: <code id="time-display">0.0s / 0.0s</code></span>
+        <span class="sep">|</span>
+        <label data-tip-ko="로봇·공·킥 위치를 히트맵으로 표시합니다" data-tip-en="Show robot/ball/kick activity as a heatmap"><input type="checkbox" id="heatmap-toggle"> <span data-i18n="labelHeatmap">히트맵</span></label>
+        <select id="heatmap-mode-select" data-tip-ko="히트맵 데이터 종류: 로봇 활동 / 공 이동 / 킥 위치" data-tip-en="Heatmap data type: robot activity / ball movement / kick positions">
+          <option value="robot" data-i18n="hmModeRobot">로봇 활동</option>
+          <option value="ball" data-i18n="hmModeBall">공 이동</option>
+          <option value="kick" data-i18n="hmModeKick">킥 위치</option>
+        </select>
+        <select id="heatmap-robot-select" data-tip-ko="히트맵 대상 로봇 선택" data-tip-en="Filter heatmap by robot"><option value="all" data-i18n="allRobots">전체</option></select>
+        <select id="heatmap-time-select" data-tip-ko="히트맵을 계산할 시간 범위" data-tip-en="Time range for heatmap calculation">
+          <option value="progressive" selected data-i18n="hmTimeProgressive">현재까지 (누적)</option>
+          <option value="all" data-i18n="hmTimeAll">전체 경기</option>
+          <option value="first" data-i18n="hmTimeFirst">전반</option>
+          <option value="second" data-i18n="hmTimeSecond">후반</option>
+          <option value="segment" data-i18n="hmTimeSegment">선택 구간</option>
+        </select>
+        <span class="sep">|</span>
+        <label data-tip-ko="각 로봇의 최근 이동 궤적을 표시합니다" data-tip-en="Show recent movement trails for each robot"><input type="checkbox" id="trail-toggle"> <span data-i18n="labelTrail">이동경로</span></label>
+        <span class="sep">|</span>
+        <label data-tip-ko="로봇의 현재 목적지 방향을 화살표로 표시합니다" data-tip-en="Show robot destination arrows"><input type="checkbox" id="dest-toggle" checked> <span data-i18n="labelDest">목적지</span></label>
+        <span class="sep">|</span>
+        <label data-tip-ko="공 위치를 필드에 표시합니다" data-tip-en="Show ball position on the field"><input type="checkbox" id="ball-toggle" checked> <span data-i18n="labelBall">공</span></label>
+        <label data-tip-ko="상대팀 로봇을 필드에 표시합니다" data-tip-en="Show opponent robots on the field"><input type="checkbox" id="enemy-toggle" checked> <span data-i18n="labelEnemies">상대 로봇</span></label>
+        <label data-tip-ko="보로노이 다이어그램으로 공간 점유 영역을 표시합니다" data-tip-en="Show Voronoi diagram of space occupation"><input type="checkbox" id="voronoi-toggle"> <span data-i18n="labelVoronoi">보로노이</span></label>
+        <label data-tip-ko="팀 대형 오버레이 (무게중심·경계 박스)를 표시합니다" data-tip-en="Show team formation overlay (centroid & bounding box)"><input type="checkbox" id="formation-toggle"> <span data-i18n="labelFormation">형태</span></label>
+        <select id="voronoi-color-mode-select" data-tip-ko="보로노이 색상 모드: 로봇별 / 팀 2색" data-tip-en="Voronoi coloring: per robot / two team colors">
+          <option value="individual" data-i18n="voronoiModeIndividual">로봇별</option>
+          <option value="team" data-i18n="voronoiModeTeam">팀 2색</option>
+        </select>
+        <span class="sep">|</span>
+        <div id="robot-filter"></div>
+        <span class="sep">|</span>
+        <button id="btn-save-png" data-i18n="btnSavePng" disabled title="현재 필드를 PNG로 저장" data-tip-ko="현재 경기장 화면을 PNG 파일로 저장" data-tip-en="Save current field view as PNG">PNG 저장</button>
+      </div>
+
+      <!-- Game state panel — between toolbar and field (does NOT overlap court) -->
+      <div id="game-overlay">
+        <div id="go-left">
+          <div class="go-label" data-i18n="opponent">상대팀</div>
+          <div id="go-team-a" class="go-team-num">—</div>
+        </div>
+        <div id="go-center">
+          <div id="go-score">- : -</div>
+          <div id="go-state-row">
+            <span id="go-state" class="go-chip">—</span>
+            <span id="go-setplay" class="go-chip secondary" style="display:none"></span>
+          </div>
+          <div id="go-time">—</div>
+          <div id="go-possession" hidden></div>
+        </div>
+        <div id="go-right">
+          <div class="go-label" data-i18n="ourTeam">우리팀</div>
+          <div id="go-team-b" class="go-team-num our">—</div>
+        </div>
+      </div>
+
+      <!-- Field area — overlay-free -->
+      <div id="court-area">
+        <svg id="court" xmlns="http://www.w3.org/2000/svg"></svg>
+
+        <!-- Legend overlay — bottom left of field -->
+        <div id="legend">
+          <span class="legend-item" data-tip-ko="우리팀 로봇 (localization 위치)" data-tip-en="Our team robots (localization position)"><span class="ld circle"></span><span data-i18n="ourTeam">우리팀</span></span>
+          <span class="legend-item" data-tip-ko="상대팀 로봇 (cooperative perception)" data-tip-en="Opponent robots (cooperative perception)"><span class="ld diamond"></span><span data-i18n="opponent">상대팀</span></span>
+          <span class="legend-item" data-tip-ko="공 위치 (detection 합산)" data-tip-en="Ball position (merged detections)"><span class="ld ball-dot"></span><span data-i18n="ball">공</span></span>
+          <span class="legend-item" data-tip-ko="로봇이 인식한 공 위치 (비전)" data-tip-en="Ball position as seen by robot's vision"><span class="ld vis-ball"></span><span data-i18n="visionBall">공 인식</span></span>
+          <span class="legend-item" data-tip-ko="로봇이 인식한 물체 위치 (비전)" data-tip-en="Object positions detected by robot's vision"><span class="ld vis-enemy"></span><span data-i18n="visionObj">물체 인식</span></span>
+          <span class="legend-item" data-tip-ko="UDP로 수신된 로봇 위치" data-tip-en="Robot position received via UDP"><span class="ld udp-robot"></span><span data-i18n="udpLegend">UDP 위치</span></span>
+        </div>
+      </div>
+
+      <div id="playback-bar">
+        <button id="btn-play" disabled data-tip-ko="재생 / 일시정지 (스페이스바)" data-tip-en="Play / Pause (Spacebar)">▶</button>
+        <div id="timeline-stack" data-tip-ko="타임라인 드래그로 시간 이동" data-tip-en="Drag to seek through the recording">
+          <div id="timeline-segments"></div>
+          <div id="timeline-segment-points"></div>
+          <div id="timeline-markers"></div>
+          <div id="timeline-gaps"></div>
+          <input id="timeline" type="range" min="0" max="100" step="0.1" value="0" disabled>
+          <div id="timeline-tooltip" hidden></div>
+        </div>
+        <label class="playback-label" data-tip-ko="← → 화살표 키 이동 간격" data-tip-en="Arrow key seek step size"><span data-i18n="labelSeekStep">이동</span>
+          <select id="seek-step-select">
+            <option value="0.1">0.1s</option>
+            <option value="0.5">0.5s</option>
+            <option value="1" selected>1s</option>
+            <option value="2">2s</option>
+            <option value="5">5s</option>
+          </select>
+        </label>
+        <select id="speed-select" data-tip-ko="재생 속도 배율" data-tip-en="Playback speed multiplier">
+          <option value="0.25">0.25×</option>
+          <option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+        </select>
+      </div>
+      <div id="bookmark-bar">
+        <div id="bookmark-meta">
+          <div id="bookmark-bar-label" data-i18n="eventBookmarks">이벤트</div>
+          <div id="bookmark-filter-wrap">
+            <div id="bookmark-filter-label" data-i18n="eventFilterTitle">마커</div>
+            <div id="bookmark-filter"></div>
+          </div>
+        </div>
+        <div id="bookmark-list"></div>
+      </div>
+
+    </section>
+
+    <aside id="robot-panel">
+      <div class="panel-section" id="summary-section" hidden>
+        <div class="summary-header">
+          <h2 data-i18n="summaryTitle">경기 요약</h2>
+          <div class="summary-tabs" id="summary-tabs">
+            <button class="summary-tab active" data-half="full" data-i18n="summaryFull" data-tip-ko="전체 경기 요약 보기" data-tip-en="Show full match summary">전체</button>
+            <button class="summary-tab" data-half="first" data-i18n="summaryFirst" data-tip-ko="전반전 요약 보기" data-tip-en="Show first half summary">전반</button>
+            <button class="summary-tab" data-half="second" data-i18n="summarySecond" data-tip-ko="후반전 요약 보기" data-tip-en="Show second half summary">후반</button>
+          </div>
+        </div>
+        <div id="summary-team"></div>
+        <div class="summary-robot-label space-chart-label" data-i18n="summaryRobotBreakdown">로봇별</div>
+        <div id="summary-robot-breakdown"></div>
+      </div>
+      <div class="panel-section">
+        <h2 data-i18n="segmentTitle">선택 구간</h2>
+        <div class="panel-subhead" data-i18n="segmentBar">사용자 구간 만들기</div>
+        <div id="segment-actions">
+          <button id="btn-segment-set-a" data-i18n="segmentSetA" data-tip-ko="현재 시간을 구간 시작점으로 설정" data-tip-en="Set current time as segment start">시작점 = 현재</button>
+          <button id="btn-segment-set-b" data-i18n="segmentSetB" data-tip-ko="현재 시간을 구간 끝점으로 설정" data-tip-en="Set current time as segment end">끝점 = 현재</button>
+          <button id="btn-segment-add" data-i18n="segmentAdd" disabled data-tip-ko="현재 시작·끝점으로 구간 추가" data-tip-en="Add segment with current start/end">구간 추가</button>
+          <button id="btn-segment-clear" data-i18n="segmentClear" disabled data-tip-ko="구간 선택 해제" data-tip-en="Deselect current segment">선택 해제</button>
+          <label class="segment-loop-label" data-tip-ko="선택 구간을 반복 재생" data-tip-en="Loop playback within the selected segment">
+            <input type="checkbox" id="segment-loop-toggle">
+            <span data-i18n="segmentLoop">반복</span>
+          </label>
+        </div>
+        <div id="segment-list"></div>
+        <p id="segment-empty" class="muted" data-i18n="segmentEmpty">
+          세그먼트를 선택하거나 Start/End로 사용자 구간을 만들어 주세요.
+        </p>
+        <div id="segment-content" hidden>
+          <div class="segment-summary-head">
+            <div id="segment-name">—</div>
+            <div id="segment-range">—</div>
+          </div>
+          <div id="segment-badges"></div>
+          <div id="segment-overview"></div>
+          <div class="space-chart-block">
+            <div class="space-chart-label" data-i18n="segmentRobotBreakdown">로봇별 요약</div>
+            <div id="segment-robot-breakdown"></div>
+          </div>
+        </div>
+      </div>
+      <div class="panel-section" id="formation-section" hidden>
+        <h2 data-i18n="formationTitle">팀 형태</h2>
+        <div id="formation-realtime"></div>
+        <div id="formation-chart-block" hidden>
+          <div class="space-chart-label" data-i18n="formationChartLabel">무게중심 추이</div>
+          <svg id="formation-chart" viewBox="0 0 220 44" preserveAspectRatio="none" data-tip-ko="클릭하면 확대 창으로 볼 수 있습니다" data-tip-en="Click to open in enlarged popup"></svg>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <h2 data-i18n="spaceControlTitle">공간 점유율</h2>
+        <p class="panel-note" data-i18n="spaceControlScope">전체 팀 기준</p>
+        <div id="space-control-empty" class="muted" data-i18n="spaceControlNoData">
+          상대 위치 데이터가 있으면 공간 점유율 분석을 표시합니다.
+        </div>
+        <div id="space-control-content" hidden>
+          <div class="space-metric" data-tip-ko="현재 프레임의 팀 간 보로노이 공간 점유율" data-tip-en="Current frame Voronoi space occupation ratio between teams">
+            <div class="space-metric-header">
+              <span data-i18n="spaceControlCurrent">현재</span>
+              <span id="space-current-text">—</span>
+            </div>
+            <div class="space-bar">
+              <div id="space-current-our" class="space-bar-seg our"></div>
+              <div id="space-current-enemy" class="space-bar-seg enemy"></div>
+            </div>
+          </div>
+
+          <div class="space-metric" data-tip-ko="현재 시간까지의 누적 평균 공간 점유율" data-tip-en="Cumulative average space occupation up to current time">
+            <div class="space-metric-header">
+              <span data-i18n="spaceControlAverage">현재까지 평균</span>
+              <span id="space-average-text">—</span>
+            </div>
+            <div class="space-bar">
+              <div id="space-average-our" class="space-bar-seg our"></div>
+              <div id="space-average-enemy" class="space-bar-seg enemy"></div>
+            </div>
+          </div>
+
+          <div class="space-chart-block">
+            <div class="space-chart-label" data-i18n="spaceControlTimeline">점유율 추이</div>
+            <svg id="space-control-chart" viewBox="0 0 220 80" preserveAspectRatio="none" data-tip-ko="클릭하면 확대 창으로 볼 수 있습니다" data-tip-en="Click to open in enlarged popup"></svg>
+          </div>
+
+          <div class="space-chart-block">
+            <div class="space-chart-label" data-i18n="spaceControlBreakdown">현재 로봇별 점유율</div>
+            <div id="space-breakdown-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <h2><span data-i18n="ourRobots">우리팀 로봇</span><span class="src-label" data-i18n="srcOurRobots">localization / udp</span></h2>
+        <div id="robot-cards"></div>
+      </div>
+      <div class="panel-section">
+        <h2><span data-i18n="labelBall">공</span><span class="src-label" data-i18n="srcBall">detected_objects · 합산</span></h2>
+        <div id="ball-card"></div>
+      </div>
+      <div class="panel-section">
+        <h2><span data-i18n="enemyRobots">상대팀 로봇</span><span class="src-label" data-i18n="srcEnemies">cooperative_perception/enemies</span></h2>
+        <div id="enemy-cards"></div>
+      </div>
+
+    </aside>
+  </main>
+
+  <div id="ui-tooltip"></div>
+
+  <!-- Floating chart popup -->
+  <div id="chart-popup" hidden>
+    <div id="chart-popup-header">
+      <span id="chart-popup-title"></span>
+      <button id="chart-popup-close" title="Close">✕</button>
+    </div>
+    <div id="chart-popup-body"></div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

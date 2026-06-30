@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Strategy GUI</title>
+  <link rel="stylesheet" href="css/style.css?v=20260626a">
+</head>
+<body>
+  <header id="app-header">
+    <div id="header-left">
+      <h1><span class="brand">Strategy GUI</span></h1>
+      <nav id="gui-switch" class="gui-switch">
+        <button class="gui-switch-btn active" type="button" disabled>Strategy GUI</button>
+        <button class="gui-switch-btn" id="btn-goto-replay" type="button">Match Replay</button>
+      </nav>
+      <span id="yaml-path-display" data-i18n-title="yaml-path-title" title="저장 경로"></span>
+    </div>
+    <div id="header-right">
+      <button id="btn-lang-toggle" class="ghost" type="button" data-i18n="lang-btn">EN</button>
+      <button id="btn-toggle-all-layers" class="ghost" type="button"
+              data-i18n-title="toggle-all-layers-title"
+              title="모든 레이어 표시/숨김">전체 숨김</button>
+      <button id="btn-add-rect">+ Rect</button>
+      <button id="btn-add-circle">+ Circle</button>
+      <button id="btn-reload">Reload</button>
+      <button id="btn-save" class="primary">Save</button>
+      <span id="save-status"></span>
+    </div>
+  </header>
+
+  <main id="layout">
+    <!-- ─── Left: Layer panel ─────────────────────────────────────── -->
+    <aside id="layer-panel">
+      <!-- Live robot status (UDP team comm MessageV2) -->
+      <section id="robot-status">
+        <div id="robot-status-head">
+          <h2><span data-i18n="robot-status-title">로봇 상태</span> <span class="muted" id="robot-status-count">(0)</span></h2>
+        </div>
+        <ul id="robot-status-list"></ul>
+        <p class="hint" id="robot-status-empty" data-i18n="robot-status-empty">실시간 데이터 없음 (UDP 팀통신 대기 중)</p>
+      </section>
+
+      <div id="layer-head">
+        <h2>Layers <span class="muted" id="layer-count">(0)</span></h2>
+      </div>
+      <p class="hint" data-i18n="layer-hint">위쪽일수록 코트에서 앞(위)에 그려집니다. ●/◌ 토글로 개별 표시/숨김.</p>
+      <ul id="layer-list"></ul>
+    </aside>
+
+    <!-- ─── Center: Court ─────────────────────────────────────────── -->
+    <section id="court-wrap">
+      <div id="court-toolbar">
+        <button id="btn-toggle-left" class="panel-toggle" type="button"
+                title="좌측 패널 접기/펼치기">◀</button>
+        <span><span data-i18n="mouse-coord-label">마우스 좌표:</span> <code id="mouse-coord">x=—  y=—</code></span>
+        <span class="sep">|</span>
+        <span><span data-i18n="selected-label">선택:</span> <code id="selected-id">(없음)</code></span>
+        <span class="sep">|</span>
+        <span class="hint-inline" data-i18n="alt-click-hint">Alt+클릭: 겹친 zone cycle</span>
+        <span class="sep">|</span>
+        <label id="live-control" data-i18n-title="live-control-title" title="로봇/공 실시간 위치 표시">
+          <input type="checkbox" id="live-toggle" checked>
+          <span data-i18n="live-toggle-label">실시간 위치</span>
+        </label>
+        <code id="live-status" class="live-status">실시간: —</code>
+        <button id="btn-toggle-right" class="panel-toggle" type="button"
+                title="우측 패널 접기/펼치기">▶</button>
+      </div>
+      <svg id="court" xmlns="http://www.w3.org/2000/svg">
+        <!-- court.js / zones.js populate dynamically -->
+      </svg>
+    </section>
+
+    <!-- ─── Right: Side panel ────────────────────────────────────── -->
+    <aside id="side-panel">
+
+      <!-- Default Policy card -->
+      <section id="defaults-card" class="card">
+        <header class="card-header">
+          <h2>Default Policy</h2>
+          <button id="defaults-toggle" class="ghost"
+                  data-i18n-title="defaults-toggle-title"
+                  title="펼치기/접기">▾</button>
+        </header>
+        <div id="defaults-body" class="card-body">
+          <div class="defaults-tabs">
+            <button class="defaults-tab active" data-space="global">Global</button>
+            <button class="defaults-tab" data-space="local">Local</button>
+          </div>
+          <form id="defaults-form">
+            <label>action
+              <select name="action">
+                <option value="none">none</option>
+                <option value="dribble">dribble</option>
+                <option value="kick">kick</option>
+                <option value="pass">pass</option>
+                <option value="move_to">move_to</option>
+                <option value="turn_to">turn_to</option>
+              </select>
+            </label>
+            <label>target
+              <input name="target" type="text" placeholder="destination / goal / ally ...">
+            </label>
+            <label>xy
+              <input name="xy" type="text" data-i18n-ph="zone-xy-ph1" placeholder='예: "1;0"'>
+            </label>
+            <label>note
+              <textarea name="note" rows="2"></textarea>
+            </label>
+            <div class="form-actions">
+              <button type="button" id="btn-defaults-apply" class="primary">Apply</button>
+            </div>
+            <p class="hint" data-i18n-html="zone-hint-save">Apply 후 상단 <strong>Save</strong> 로 YAML 에 기록.</p>
+          </form>
+        </div>
+      </section>
+
+      <!-- Zone properties card -->
+      <section id="zone-card" class="card">
+        <header class="card-header"><h2 data-i18n="zone-card-title">Zone 속성</h2></header>
+        <div class="card-body">
+          <div id="panel-empty" class="hint" data-i18n="zone-form-empty">왼쪽 코트 또는 Layers 에서 zone 을 선택하세요.</div>
+          <form id="zone-form" class="hidden">
+            <label>ID
+              <input name="id" type="text" required>
+            </label>
+            <label><span data-i18n="zone-name-label">이름</span>
+              <input name="name" type="text">
+            </label>
+            <label>Type
+              <select name="type">
+                <option value="rect">rect</option>
+                <option value="circle">circle</option>
+              </select>
+            </label>
+            <label>Space
+              <select name="space">
+                <option value="global">global</option>
+                <option value="local">local</option>
+              </select>
+            </label>
+
+            <fieldset id="geom-rect">
+              <legend>geometry (rect, m)</legend>
+              <label>x1<input name="x1" type="number" step="0.01"></label>
+              <label>y1<input name="y1" type="number" step="0.01"></label>
+              <label>x2<input name="x2" type="number" step="0.01"></label>
+              <label>y2<input name="y2" type="number" step="0.01"></label>
+            </fieldset>
+
+            <fieldset id="geom-circle" class="hidden">
+              <legend>geometry (circle, m)</legend>
+              <label>cx<input name="cx" type="number" step="0.01"></label>
+              <label>cy<input name="cy" type="number" step="0.01"></label>
+              <label>r<input name="r" type="number" step="0.01" min="0.1"></label>
+            </fieldset>
+
+            <fieldset>
+              <legend>Action Policy</legend>
+              <label>action
+                <select name="action">
+                  <option value="none">none</option>
+                  <option value="dribble">dribble</option>
+                  <option value="kick">kick</option>
+                  <option value="pass">pass</option>
+                  <option value="move_to">move_to</option>
+                  <option value="turn_to">turn_to</option>
+                </select>
+              </label>
+              <label>target
+                <input name="target" type="text" placeholder="goal / ally / destination / set_point ...">
+              </label>
+              <label>xy
+                <input name="xy" type="text" data-i18n-ph="zone-xy-ph2" placeholder='예: "7.6;0"'>
+              </label>
+              <label>note
+                <textarea name="note" rows="2"></textarea>
+              </label>
+            </fieldset>
+
+            <label>BT Ref
+              <input name="bt_ref" type="text" placeholder="BehaviorTreeID/Path">
+            </label>
+            <label>Color
+              <input name="color" type="color">
+            </label>
+
+            <fieldset>
+              <legend>z-order</legend>
+              <div class="zorder-row">
+                <button type="button" id="btn-z-front"
+                        data-i18n-title="z-front-title" title="맨 앞으로">⤒</button>
+                <button type="button" id="btn-z-forward"
+                        data-i18n-title="z-forward-title" title="앞으로">↑</button>
+                <button type="button" id="btn-z-backward"
+                        data-i18n-title="z-backward-title" title="뒤로">↓</button>
+                <button type="button" id="btn-z-back"
+                        data-i18n-title="z-back-title" title="맨 뒤로">⤓</button>
+                <span class="hint-inline" id="zorder-info"></span>
+              </div>
+            </fieldset>
+
+            <div class="form-actions">
+              <button type="button" id="btn-apply" class="primary">Apply</button>
+              <button type="button" id="btn-delete" class="danger">Delete</button>
+            </div>
+            <p class="hint" data-i18n-html="zone-hint-save">Apply 후 상단 <strong>Save</strong> 로 YAML 에 기록.</p>
+          </form>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <script type="module" src="js/app.js?v=20260626a"></script>
+</body>
+</html>

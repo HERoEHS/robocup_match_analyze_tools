@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Strategy GUI Sim</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#111;color:#eee;font-family:monospace;display:flex;height:100vh;overflow:hidden}
+#field-wrap{flex:1;display:flex;align-items:center;justify-content:center;padding:12px;min-width:0}
+#field-svg{width:100%;height:100%;max-width:900px;max-height:620px;cursor:crosshair;user-select:none}
+#sidebar{width:320px;background:#1a1a1a;border-left:1px solid #333;display:flex;flex-direction:column;padding:10px;gap:8px;overflow-y:auto}
+h2{font-size:13px;color:#aaa;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #333;padding-bottom:6px}
+.btn{width:100%;padding:7px;border:1px solid #444;background:#2a2a2a;color:#eee;cursor:pointer;font-size:12px;border-radius:3px;transition:background .15s}
+.btn:hover{background:#3a3a3a}
+.btn.active{background:#1a4a1a;border-color:#4a8a4a;color:#8f8}
+.btn.danger{border-color:#8a4a4a}
+.btn.danger:hover{background:#3a1a1a}
+.slider-row{display:flex;flex-direction:column;gap:3px}
+.slider-row label{font-size:11px;color:#888}
+input[type=range]{width:100%;accent-color:#4488ff}
+.robot-card,.info-card{background:#222;border:1px solid #333;border-radius:4px;padding:7px;font-size:11px}
+.robot-card .name{font-size:12px;font-weight:bold;margin-bottom:4px}
+.robot-card .row{display:flex;justify-content:space-between;color:#aaa;margin-top:1px}
+.robot-card .val{color:#eee}
+.badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:10px;margin-left:4px}
+.ball-card{background:#222;border:1px solid #555;border-radius:4px;padding:7px;font-size:11px}
+#manual-target{width:100%;padding:7px;border:1px solid #444;background:#171717;color:#eee;border-radius:3px}
+.control-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.info-card p{line-height:1.45;color:#cfcfcf}
+.info-card .hint{color:#8d8d8d}
+.mini{font-size:10px;color:#8b8b8b}
+.kv-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+.kv{background:#181818;border:1px solid #2f2f2f;border-radius:4px;padding:6px}
+.kv .k{display:block;font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.4px}
+.kv .v{display:block;font-size:12px;color:#f2f2f2;margin-top:2px;word-break:break-word}
+.chip-row{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+.chip{display:inline-block;padding:2px 6px;border-radius:999px;font-size:10px;border:1px solid #555;background:#2a2a2a;color:#ddd}
+.chip.warn{border-color:#8f3a3a;background:#351818;color:#ffb2b2}
+.chip.ok{border-color:#387038;background:#173317;color:#a7f0a7}
+#status{font-size:10px;color:#666;margin-top:auto;padding-top:8px;border-top:1px solid #222}
+#pause-overlay text{pointer-events:none}
+</style>
+</head>
+<body>
+
+<div id="field-wrap">
+<svg id="field-svg" viewBox="0 0 680 460" xmlns="http://www.w3.org/2000/svg">
+  <rect width="680" height="460" fill="#1a3a1a"/>
+  <rect id="f-rect" x="40" y="40" width="600" height="380" fill="#2d7a2d" stroke="white" stroke-width="2"/>
+  <line x1="340" y1="40" x2="340" y2="420" stroke="white" stroke-width="2"/>
+  <circle cx="340" cy="230" r="64" fill="none" stroke="white" stroke-width="2"/>
+  <circle cx="340" cy="230" r="4" fill="white"/>
+  <rect x="40" y="145" width="43" height="170" fill="none" stroke="white" stroke-width="2"/>
+  <rect x="597" y="145" width="43" height="170" fill="none" stroke="white" stroke-width="2"/>
+  <rect x="14" y="179" width="26" height="103" fill="none" stroke="#aaa" stroke-width="1.5" stroke-dasharray="4,2"/>
+  <rect x="640" y="179" width="26" height="103" fill="none" stroke="#aaa" stroke-width="1.5" stroke-dasharray="4,2"/>
+  <g id="dyn"></g>
+  <g id="pause-overlay" display="none">
+    <rect width="680" height="460" fill="rgba(0,0,0,0.45)"/>
+    <text x="340" y="220" text-anchor="middle" font-size="52" font-family="monospace"
+          fill="white" opacity="0.9">⏸</text>
+    <text x="340" y="270" text-anchor="middle" font-size="22" font-family="monospace"
+          fill="#aaffaa" opacity="0.9">PAUSED</text>
+  </g>
+</svg>
+</div>
+
+<div id="sidebar">
+  <h2>Sim Control</h2>
+  <button class="btn" id="btn-pause">⏸ Pause</button>
+  <button class="btn danger" id="btn-reset">↺ Reset</button>
+  <div class="slider-row">
+    <label>Speed: <span id="speed-label">1.0×</span></label>
+    <input type="range" id="speed-slider" min="1" max="50" value="10" step="1">
+  </div>
+
+  <h2>Display</h2>
+  <div class="slider-row">
+    <label>Robot Size: <span id="robot-size-label">1.00×</span></label>
+    <input type="range" id="robot-size-slider" min="50" max="200" value="100" step="5">
+  </div>
+  <div class="slider-row">
+    <label>Ball Size: <span id="ball-size-label">1.00×</span></label>
+    <input type="range" id="ball-size-slider" min="50" max="200" value="100" step="5">
+  </div>
+
+  <h2>Perception Noise</h2>
+  <div class="control-grid">
+    <button class="btn active" id="btn-noise-toggle">Noise On</button>
+    <button class="btn active" id="btn-noise-gui-toggle">Show On</button>
+  </div>
+  <div class="slider-row">
+    <label>Self Pos σ: <span id="noise-self-pos-label">0.01 m</span></label>
+    <input type="range" id="noise-self-pos-slider" min="0" max="50" value="1" step="1">
+  </div>
+  <div class="slider-row">
+    <label>Self Angle σ: <span id="noise-self-angle-label">0.01 rad</span></label>
+    <input type="range" id="noise-self-angle-slider" min="0" max="30" value="1" step="1">
+  </div>
+  <div class="slider-row">
+    <label>Ball σ: <span id="noise-ball-label">0.01 m</span></label>
+    <input type="range" id="noise-ball-slider" min="0" max="100" value="1" step="1">
+  </div>
+  <div class="slider-row">
+    <label>Other Robot σ: <span id="noise-other-robot-label">0.01 m</span></label>
+    <input type="range" id="noise-other-robot-slider" min="0" max="100" value="1" step="1">
+  </div>
+
+  <h2>Robot Fall</h2>
+  <div class="control-grid">
+    <button class="btn active" id="btn-fall-enable">Fall On</button>
+  </div>
+  <div class="slider-row">
+    <label>Near-contact Fall/tick: <span id="fall-prob-label">0.0015</span></label>
+    <input type="range" id="fall-prob-slider" min="0" max="200" value="15" step="1">
+  </div>
+  <div class="slider-row">
+    <label>Recovery: <span id="fall-recovery-label">15 s</span></label>
+    <input type="range" id="fall-recovery-slider" min="1" max="300" value="15" step="1">
+  </div>
+  <p class="mini" id="fall-contact-hint">충돌 반경 0.35 m · 낙상 근접 기준 0.84 m</p>
+
+  <h2>Vision FOV</h2>
+  <div class="control-grid">
+    <button class="btn active" id="btn-fov-show">Show On</button>
+  </div>
+  <div class="slider-row">
+    <label>FOV Angle: <span id="fov-angle-label">120°</span></label>
+    <input type="range" id="fov-angle-slider" min="10" max="360" value="120" step="5">
+  </div>
+  <div class="slider-row">
+    <label>FOV Range: <span id="fov-range-label">8.0 m</span></label>
+    <input type="range" id="fov-range-slider" min="1" max="200" value="80" step="1">
+  </div>
+
+  <h2>Keyboard Control</h2>
+  <select id="manual-target"></select>
+  <div class="control-grid">
+    <button class="btn" id="btn-manual">Release Select</button>
+    <button class="btn" id="btn-stop-manual">Zero Cmd</button>
+  </div>
+  <div class="info-card">
+    <p id="manual-state">로봇이나 공을 클릭하면 선택되고, 선택된 대상은 멈춘 뒤 키보드로 조종됩니다.</p>
+    <p class="hint">W/A/S/D: 평면 이동 · Q/E: 회전 · 방향키도 지원 · 공 선택 시 회전은 무시</p>
+  </div>
+
+  <h2>송신 기준 로봇</h2>
+  <div id="legacy-robot-buttons" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+  <div class="info-card" style="margin-top:6px">
+    <p class="hint">선택한 로봇(들)을 기준으로 UDP MessageV2 및 legacy ROS 토픽을 송신합니다.<br>
+    선택된 로봇은 각각 <code>/robot{id}/...</code> 네임스페이스로 발행되며,<br>
+    첫 번째 선택 로봇은 기존 <code>/robot/...</code> 플랫 네임스페이스에도 동시 발행됩니다.</p>
+  </div>
+
+  <h2>Game Controller</h2>
+  <div class="info-card">
+    <p id="gc-summary">외부 GC 대기 중</p>
+    <p class="hint" id="gc-detail">외부 GC가 active 되기 전까지 로봇과 공은 자동으로 움직이지 않습니다.</p>
+    <p class="mini" id="gc-score">score 0 : 0</p>
+    <div class="kv-grid">
+      <div class="kv"><span class="k">state</span><span class="v" id="gc-state">inactive</span></div>
+      <div class="kv"><span class="k">set play</span><span class="v" id="gc-setplay">inactive</span></div>
+      <div class="kv"><span class="k">packet</span><span class="v" id="gc-packet">—</span></div>
+      <div class="kv"><span class="k">clock</span><span class="v" id="gc-clock">—</span></div>
+      <div class="kv"><span class="k">kicking team</span><span class="v" id="gc-kicking">—</span></div>
+      <div class="kv"><span class="k">teams</span><span class="v" id="gc-teams">25 vs 26</span></div>
+      <div class="kv"><span class="k">source</span><span class="v" id="gc-source">waiting</span></div>
+      <div class="kv"><span class="k">udp path</span><span class="v" id="gc-udp-path">3838 → 3939</span></div>
+    </div>
+    <div class="mini" style="margin-top:8px">flags</div>
+    <div class="chip-row" id="gc-flags"></div>
+    <div class="mini" style="margin-top:8px">ally penalties</div>
+    <div class="chip-row" id="gc-ally-penalties"></div>
+    <div class="mini" style="margin-top:8px">opponent penalties</div>
+    <div class="chip-row" id="gc-opponent-penalties"></div>
+  </div>
+
+  <h2>Robots</h2>
+  <div id="robot-cards"></div>
+
+  <h2>Opponents</h2>
+  <div id="opponent-cards"></div>
+
+  <h2>Ball</h2>
+  <div class="ball-card" id="ball-card">
+    <div class="row"><span>x</span><span class="val" id="bx">—</span></div>
+    <div class="row"><span>y</span><span class="val" id="by">—</span></div>
+  </div>
+
+  <h2>Guide</h2>
+  <div class="info-card">
+    <p>아군, 상대, 공을 클릭해서 선택하고 키보드로 조종할 수 있습니다.</p>
+    <p>외부 Game Controller가 active 되면 READY/SET에서는 set point로 정렬되고, PLAYING에서는 역할 기준으로 움직입니다.</p>
+    <p>기본 설정에서는 외부 GC가 active 되기 전까지 자동 움직임이 잠겨 있습니다.</p>
+    <p>로봇끼리는 실제 로봇 크기만큼 완전히 겹치지 않게 분리되며, 지나치게 밀착하면 확률적으로 넘어질 수 있습니다.</p>
+    <p>원본 sender 파이프라인이 필요하면 이 시뮬레이터가 legacy topic도 같이 발행합니다.</p>
+    <p class="hint">외부 UDP sender와 함께 돌릴 때는 내장 UDP와 중복되지 않게 `publish_udp:=false`를 권장합니다.</p>
+  </div>
+
+  <div id="status">polling…</div>
+</div>
+
+<script>
+const FIELD_LEFT = 40;
+const FIELD_TOP = 40;
+const FIELD_W = 600;
+const FIELD_H = 380;
+const ACTION_ICON = {none:'●', move_to:'→', turn_to:'↻', kick:'⚽', pass:'↗', dribble:'⌚'};
+const DISPLAY_STORAGE_KEY = 'strategyGuiSimDisplay';
+const DISPLAY_DEFAULTS = Object.freeze({robotScale: 1.0, ballScale: 1.0});
+const NOISE_DEFAULTS = Object.freeze({enabled: true, show_in_gui: true, self_pos: 0.01, self_angle: 0.01, ball: 0.01, other_robot: 0.01});
+const BASE_ROBOT_RADIUS = 18;
+const BASE_BALL_RADIUS = 9;
+
+let state = null;
+let keyState = new Set();
+let displaySettings = loadDisplaySettings();
+
+function clampDisplayScale(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 1.0;
+  return Math.max(0.5, Math.min(2.0, numeric));
+}
+function loadDisplaySettings() {
+  try {
+    const raw = window.localStorage.getItem(DISPLAY_STORAGE_KEY);
+    if (!raw) return {...DISPLAY_DEFAULTS};
+    const parsed = JSON.parse(raw);
+    return {
+      robotScale: clampDisplayScale(parsed.robotScale),
+      ballScale: clampDisplayScale(parsed.ballScale),
+    };
+  } catch {
+    return {...DISPLAY_DEFAULTS};
+  }
+}
+function saveDisplaySettings() {
+  try {
+    window.localStorage.setItem(DISPLAY_STORAGE_KEY, JSON.stringify(displaySettings));
+  } catch {
+  }
+}
+function formatScaleLabel(scale) {
+  return scale.toFixed(2) + '×';
+}
+function getRobotRadius() {
+  return BASE_ROBOT_RADIUS * displaySettings.robotScale;
+}
+function getBallRadius() {
+  return BASE_BALL_RADIUS * displaySettings.ballScale;
+}
+function syncDisplayControls() {
+  const robotSlider = document.getElementById('robot-size-slider');
+  const ballSlider = document.getElementById('ball-size-slider');
+  const robotValue = Math.round(displaySettings.robotScale * 100);
+  const ballValue = Math.round(displaySettings.ballScale * 100);
+  if (document.activeElement !== robotSlider) robotSlider.value = robotValue;
+  if (document.activeElement !== ballSlider) ballSlider.value = ballValue;
+  document.getElementById('robot-size-label').textContent = formatScaleLabel(displaySettings.robotScale);
+  document.getElementById('ball-size-label').textContent = formatScaleLabel(displaySettings.ballScale);
+}
+
+function toSVG(mx, my) {
+  const f = state?.field || {length: 14, width: 9};
+  const sx = FIELD_LEFT + (mx + f.length / 2) * (FIELD_W / f.length);
+  const sy = FIELD_TOP + (f.width / 2 - my) * (FIELD_H / f.width);
+  return [sx, sy];
+}
+function toField(sx, sy) {
+  const f = state?.field || {length: 14, width: 9};
+  const mx = (sx - FIELD_LEFT) / (FIELD_W / f.length) - f.length / 2;
+  const my = f.width / 2 - (sy - FIELD_TOP) / (FIELD_H / f.width);
+  return [mx, my];
+}
+function svgPoint(evt) {
+  const svg = document.getElementById('field-svg');
+  const pt = svg.createSVGPoint();
+  pt.x = evt.clientX;
+  pt.y = evt.clientY;
+  const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+  return {x: p.x, y: p.y};
+}
+function hitRadius(svgX, svgY, mx, my, rPx) {
+  const [sx, sy] = toSVG(mx, my);
+  return Math.hypot(svgX - sx, svgY - sy) < rPx;
+}
+
+const svg = document.getElementById('field-svg');
+svg.addEventListener('click', onFieldClick);
+
+function selectTarget(team, id, enabled=true) {
+  const select = document.getElementById('manual-target');
+  const value = `${team}:${id}`;
+  select.value = value;
+  sendManualSelection(team, id, enabled);
+}
+
+function clearSelection() {
+  keyState.clear();
+  sendManualInput(0, 0, 0);
+  const select = document.getElementById('manual-target');
+  select.value = 'none:0';
+  sendManualSelection('none', 0, false);
+}
+
+function onFieldClick(evt) {
+  if (!state) return;
+  const p = svgPoint(evt);
+  if (hitRadius(p.x, p.y, state.ball.x, state.ball.y, Math.max(12, getBallRadius() + 4))) {
+    selectTarget('ball', 0, true);
+    return;
+  }
+  for (const r of state.robots) {
+    if (hitRadius(p.x, p.y, r.x, r.y, Math.max(18, getRobotRadius() + 4))) {
+      selectTarget(r.team, r.id, true);
+      return;
+    }
+  }
+  for (const o of state.opponents) {
+    if (hitRadius(p.x, p.y, o.x, o.y, Math.max(18, getRobotRadius() + 4))) {
+      selectTarget(o.team, o.id, true);
+      return;
+    }
+  }
+  clearSelection();
+}
+
+function sendControl(action, value) {
+  const body = {action};
+  if (value !== undefined) body.value = value;
+  return fetch('/api/control', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  }).then(r => r.json()).catch(e => console.error('[sim] control error:', e));
+}
+
+function sendManualSelection(team, id, enabled) {
+  return fetch('/api/manual/select', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({team, id, enabled}),
+  }).then(r => r.json()).catch(e => console.error('[sim] manual select error:', e));
+}
+
+function sendLegacyRobotIds(ids) {
+  return fetch('/api/legacy/robot_ids', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({robot_ids: ids}),
+  }).then(r => r.json()).catch(e => console.error('[sim] legacy robot_ids error:', e));
+}
+
+function sendLegacyRobotId(robotId) {
+  return fetch('/api/legacy/robot_id', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({robot_id: robotId}),
+  }).then(r => r.json()).catch(e => console.error('[sim] legacy robot_id error:', e));
+}
+
+function sendManualInput(vx, vy, omega) {
+  return fetch('/api/manual/input', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({vx, vy, omega}),
+  }).catch(e => console.error('[sim] manual input error:', e));
+}
+
+function sendNoise(body) {
+  return fetch('/api/noise', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  }).catch(e => console.error('[sim] noise error:', e));
+}
+
+function sendFall(body) {
+  return fetch('/api/fall', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  }).catch(e => console.error('[sim] fall error:', e));
+}
+
+function sendFov(body) {
+  return fetch('/api/fov', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  }).catch(e => console.error('[sim] fov error:', e));
+}
+
+let _fovShowCones = true;
+
+document.getElementById('btn-pause').addEventListener('click', () => {
+  const paused = state ? state.paused : false;
+  sendControl(paused ? 'resume' : 'pause');
+});
+
+document.getElementById('btn-reset').addEventListener('click', () => {
+  sendControl('reset');
+});
+
+document.getElementById('speed-slider').addEventListener('input', (e) => {
+  const speedMult = parseInt(e.target.value, 10) / 10;
+  document.getElementById('speed-label').textContent = speedMult.toFixed(1) + '×';
+  sendControl('set_speed', speedMult);
+});
+
+document.getElementById('robot-size-slider').addEventListener('input', (e) => {
+  displaySettings.robotScale = clampDisplayScale(parseInt(e.target.value, 10) / 100);
+  syncDisplayControls();
+  saveDisplaySettings();
+  if (state) render(state);
+});
+
+document.getElementById('ball-size-slider').addEventListener('input', (e) => {
+  displaySettings.ballScale = clampDisplayScale(parseInt(e.target.value, 10) / 100);
+  syncDisplayControls();
+  saveDisplaySettings();
+  if (state) render(state);
+});
+
+function drawFovCone(parent, rx, ry, theta, angleDeg, rangeM, color) {
+  const f = state?.field || {length: 14, width: 9};
+  const scaleX = FIELD_W / f.length;
+  const scaleY = FIELD_H / f.width;
+  const halfRad = angleDeg * Math.PI / 360;
+
+  if (angleDeg >= 358) {
+    // Near-full circle: use ellipse element to avoid degenerate paths
+    const ell = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+    ell.setAttribute('cx', rx);
+    ell.setAttribute('cy', ry);
+    ell.setAttribute('rx', rangeM * scaleX);
+    ell.setAttribute('ry', rangeM * scaleY);
+    ell.setAttribute('fill', color + '1a');
+    ell.setAttribute('stroke', color + '60');
+    ell.setAttribute('stroke-width', '1');
+    parent.appendChild(ell);
+    return;
+  }
+
+  // Polygon approximation: sweep from left FOV edge to right FOV edge
+  const steps = Math.max(16, Math.ceil(angleDeg / 3));
+  const angStep = angleDeg * Math.PI / 180 / steps;
+  const startAngle = theta + halfRad;
+  const pts = [[rx, ry]];
+  for (let i = 0; i <= steps; i++) {
+    const a = startAngle - i * angStep;
+    pts.push([rx + rangeM * scaleX * Math.cos(a), ry - rangeM * scaleY * Math.sin(a)]);
+  }
+
+  const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+  poly.setAttribute('points', pts.map(p => p.join(',')).join(' '));
+  poly.setAttribute('fill', color + '1a');
+  poly.setAttribute('stroke', color + '60');
+  poly.setAttribute('stroke-width', '1');
+  parent.appendChild(poly);
+}
+
+function render(s) {
+  const dyn = document.getElementById('dyn');
+  dyn.innerHTML = '';
+  document.getElementById('pause-overlay').setAttribute('display', s.paused ? 'inline' : 'none');
+
+  const noise = s.noise || NOISE_DEFAULTS;
+  const showPerceived = noise.enabled && noise.show_in_gui && s.perceived;
+  const fov = s.fov || {angle_deg: 120, range_m: 8};
+
+  // Draw FOV cones behind everything else
+  if (_fovShowCones) {
+    for (const r of s.robots) {
+      const [rx, ry] = toSVG(r.x, r.y);
+      drawFovCone(dyn, rx, ry, r.theta, fov.angle_deg, fov.range_m, r.color);
+    }
+  }
+
+  if (showPerceived) {
+    const rr = getRobotRadius();
+    const br = getBallRadius();
+    for (const r of s.robots) {
+      const p = s.perceived[String(r.id)];
+      if (!p) continue;
+
+      // perceived self position (dashed outline circle)
+      const [px, py] = toSVG(p.x, p.y);
+      circle(dyn, px, py, rr * 0.55, 'none', r.color + '80', 1.5);
+
+      // perceived ball position (small dot per robot, only when in FOV)
+      if (p.ball_in_fov !== false && p.ball_x != null) {
+        const [pbx, pby] = toSVG(p.ball_x, p.ball_y);
+        circle(dyn, pbx, pby, br * 0.6, '#ff880060', r.color + '90', 1);
+      }
+
+      // perceived ally positions (small hollow circles in robot's color)
+      if (p.allies) {
+        for (const a of p.allies) {
+          const [ax, ay] = toSVG(a.x, a.y);
+          circle(dyn, ax, ay, rr * 0.40, 'none', r.color + '70', 1.2);
+        }
+      }
+
+      // perceived opponent positions (small diamonds in robot's color)
+      if (p.opponents) {
+        for (const o of p.opponents) {
+          const [ox, oy] = toSVG(o.x, o.y);
+          diamond(dyn, ox, oy, rr * 0.40, 'none', r.color + '70', 1.2);
+        }
+      }
+    }
+  }
+
+  const ballRadius = getBallRadius();
+  const [bsx, bsy] = toSVG(s.ball.x, s.ball.y);
+  circle(dyn, bsx + 3, bsy + 3, ballRadius, 'rgba(0,0,0,0.35)');
+  circle(dyn, bsx, bsy, ballRadius, '#ff8800');
+  circle(dyn, bsx, bsy, ballRadius, 'none', 'white', 1.5);
+  if (s.ball.selected) circle(dyn, bsx, bsy, ballRadius + 6, 'none', '#8fff8f', 2);
+  text(dyn, bsx, bsy - (ballRadius + 5), '⚽', Math.max(12, ballRadius * 1.2), 'white');
+
+  for (const r of s.robots) {
+    const [rx, ry] = toSVG(r.x, r.y);
+    renderAgent(dyn, r, rx, ry, false);
+  }
+  for (const o of s.opponents) {
+    const [ox, oy] = toSVG(o.x, o.y);
+    renderAgent(dyn, o, ox, oy, true);
+  }
+}
+
+function renderAgent(parent, entity, x, y, asDiamond) {
+  const robotRadius = getRobotRadius();
+  const headingLength = robotRadius + 6;
+  const headLen = Math.max(7, robotRadius * 0.42);
+  const idTextSize = Math.max(13, robotRadius * 0.72);
+  const actionTextSize = Math.max(10, robotRadius * 0.55);
+  const fallen = entity.fallen || false;
+
+  circle(parent, x + 3, y + 3, robotRadius, 'rgba(0,0,0,0.35)');
+  if (asDiamond) {
+    const fillColor = fallen ? '#55555588' : entity.color + 'd4';
+    diamond(parent, x, y, robotRadius, fillColor, entity.penalty ? '#ffd4d4' : (fallen ? '#ff8c00' : 'white'), entity.selected ? 3 : 1.5);
+  } else {
+    const fillColor = fallen ? '#33333399' : entity.color + 'cc';
+    const strokeColor = entity.penalty ? '#ff4444' : (fallen ? '#ff8c00' : 'white');
+    circle(parent, x, y, robotRadius, fillColor);
+    circle(parent, x, y, robotRadius, 'none', strokeColor, entity.selected ? 3 : (fallen ? 2.5 : 1.5));
+    if (entity.role === 2 && !fallen) circle(parent, x, y, robotRadius + 4, 'none', '#ffdd00', 2);
+  }
+  if (entity.selected) circle(parent, x, y, robotRadius + 7, 'none', '#8fff8f', 2);
+
+  if (!fallen) {
+    const dx = Math.cos(entity.theta) * headingLength;
+    const dy = -Math.sin(entity.theta) * headingLength;
+    line(parent, x, y, x + dx, y + dy, 'white', 2);
+    const ax = x + dx;
+    const ay = y + dy;
+    const headAngle = 0.5;
+    const angle = Math.atan2(dy, dx);
+    const p1x = ax - headLen * Math.cos(angle - headAngle);
+    const p1y = ay - headLen * Math.sin(angle - headAngle);
+    const p2x = ax - headLen * Math.cos(angle + headAngle);
+    const p2y = ay - headLen * Math.sin(angle + headAngle);
+    polygon(parent, [[ax, ay], [p1x, p1y], [p2x, p2y]], 'white');
+  } else {
+    // X mark for fallen robots
+    const r2 = robotRadius * 0.55;
+    line(parent, x - r2, y - r2, x + r2, y + r2, '#ff8c00', 2.5);
+    line(parent, x + r2, y - r2, x - r2, y + r2, '#ff8c00', 2.5);
+  }
+
+  const idColor = fallen ? '#ff8c0099' : '#111';
+  text(parent, x, y + Math.max(4, robotRadius * 0.2), String(entity.id), idTextSize, idColor, 'bold');
+  const icon = fallen ? '💀' : (ACTION_ICON[entity.action] || '●');
+  const label = fallen ? 'FALLEN' : (icon + ' ' + entity.action);
+  text(parent, x, y - (robotRadius + 8), label, actionTextSize, fallen ? '#ff8c00' : entity.color, 'normal', '#000a');
+}
+
+function el(tag, attrs) {
+  const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  return e;
+}
+function circle(parent, cx, cy, r, fill, stroke='none', sw=1) {
+  parent.appendChild(el('circle', {cx, cy, r, fill, stroke, 'stroke-width': sw}));
+}
+function line(parent, x1, y1, x2, y2, stroke, sw=1.5) {
+  parent.appendChild(el('line', {x1, y1, x2, y2, stroke, 'stroke-width': sw}));
+}
+function polygon(parent, pts, fill) {
+  const s = pts.map(p => p.join(',')).join(' ');
+  parent.appendChild(el('polygon', {points: s, fill}));
+}
+function diamond(parent, cx, cy, r, fill, stroke='none', sw=1) {
+  const points = [[cx, cy-r],[cx+r, cy],[cx, cy+r],[cx-r, cy]];
+  polygon(parent, points, fill);
+  parent.appendChild(el('polygon', {
+    points: points.map(p => p.join(',')).join(' '),
+    fill: 'none', stroke, 'stroke-width': sw,
+  }));
+}
+function text(parent, x, y, content, size=12, fill='white', weight='normal', background=null) {
+  if (background) {
+    const bg = el('text', {x, y, 'font-size': size, 'font-family': 'monospace',
+      fill: background, 'text-anchor': 'middle', 'font-weight': weight,
+      'paint-order': 'stroke', stroke: background, 'stroke-width': 3});
+    bg.textContent = content;
+    parent.appendChild(bg);
+  }
+  const t = el('text', {x, y, 'font-size': size, 'font-family': 'monospace',
+    fill, 'text-anchor': 'middle', 'font-weight': weight});
+  t.textContent = content;
+  parent.appendChild(t);
+}
+
+function syncControls(s) {
+  const fmtMaybe = (value, suffix='') => (value === null || value === undefined || value === '') ? '—' : `${value}${suffix}`;
+  const motionLockMessage = (gc) => {
+    if (!gc || gc.motion_enabled) return '';
+    if (gc.motion_lock_reason === 'waiting_for_direct_gc') return '직접 Game Controller UDP 연결 전이라 움직임 잠금';
+    if (gc.motion_lock_reason === 'waiting_for_gc') return '외부 GC 대기 중이라 움직임 잠금';
+    return 'GC 조건 미충족으로 움직임 잠금';
+  };
+  const renderPenaltyChips = (targetId, players, emptyLabel) => {
+    const root = document.getElementById(targetId);
+    root.innerHTML = '';
+    if (!players || !players.length) {
+      const chip = document.createElement('span');
+      chip.className = 'chip ok';
+      chip.textContent = emptyLabel;
+      root.appendChild(chip);
+      return;
+    }
+    for (const playerId of players) {
+      const chip = document.createElement('span');
+      chip.className = 'chip warn';
+      chip.textContent = `P${playerId}`;
+      root.appendChild(chip);
+    }
+  };
+
+  const pauseBtn = document.getElementById('btn-pause');
+  pauseBtn.textContent = s.paused ? '▶ Resume' : '⏸ Pause';
+  pauseBtn.classList.toggle('active', s.paused);
+
+  const speedValue = Math.round(s.speed_mult * 10);
+  const slider = document.getElementById('speed-slider');
+  if (document.activeElement !== slider) slider.value = speedValue;
+  document.getElementById('speed-label').textContent = s.speed_mult.toFixed(1) + '×';
+
+  const select = document.getElementById('manual-target');
+  const options = [{value: 'none:0', label: 'None'}, {value: 'ball:0', label: 'Ball'}];
+  for (const r of s.robots) options.push({value: `${r.team}:${r.id}`, label: `Robot ${r.id}`});
+  for (const o of s.opponents) options.push({value: `${o.team}:${o.id}`, label: `Opponent ${o.id}`});
+  if (select.options.length !== options.length) {
+    select.innerHTML = '';
+    for (const opt of options) {
+      const option = document.createElement('option');
+      option.value = opt.value;
+      option.textContent = opt.label;
+      select.appendChild(option);
+    }
+  }
+  select.value = s.manual.enabled ? `${s.manual.team}:${s.manual.id}` : 'none:0';
+  document.getElementById('btn-manual').textContent = s.manual.enabled ? 'Release Select' : 'No Selection';
+  document.getElementById('btn-manual').classList.toggle('active', s.manual.enabled);
+  const selectedLabel = select.options[select.selectedIndex]?.text || 'None';
+  const gc = s.gc || {};
+  document.getElementById('manual-state').textContent = s.manual.enabled
+    ? (
+        gc.motion_enabled
+          ? `선택됨: ${selectedLabel} · 자동 이동 정지 · 키보드 조종 가능`
+          : `선택됨: ${selectedLabel} · ${motionLockMessage(gc)}`
+      )
+    : (gc.motion_enabled ? '선택 없음: 자동 이동 중' : `선택 없음: ${motionLockMessage(gc)}`);
+  const legacyBtnContainer = document.getElementById('legacy-robot-buttons');
+  const legacyActiveIds = new Set((s.legacy.robot_ids || []).map(Number));
+  if (legacyBtnContainer.children.length !== s.robots.length) {
+    legacyBtnContainer.innerHTML = '';
+    for (const r of s.robots) {
+      const btn = document.createElement('button');
+      btn.id = `btn-legacy-robot-${r.id}`;
+      btn.className = 'btn';
+      btn.textContent = `Robot ${r.id}`;
+      btn.dataset.robotId = r.id;
+      btn.addEventListener('click', () => {
+        const currentIds = new Set(
+          [...document.querySelectorAll('#legacy-robot-buttons .btn.active')]
+            .map(b => Number(b.dataset.robotId))
+        );
+        if (currentIds.has(r.id)) {
+          if (currentIds.size > 1) currentIds.delete(r.id);
+        } else {
+          currentIds.add(r.id);
+        }
+        sendLegacyRobotIds([...currentIds]);
+      });
+      legacyBtnContainer.appendChild(btn);
+    }
+  }
+  for (const btn of legacyBtnContainer.querySelectorAll('.btn')) {
+    const rid = Number(btn.dataset.robotId);
+    btn.classList.toggle('active', legacyActiveIds.has(rid));
+  }
+
+  const noise = s.noise || NOISE_DEFAULTS;
+  const noiseToggle = document.getElementById('btn-noise-toggle');
+  const noiseGuiToggle = document.getElementById('btn-noise-gui-toggle');
+  noiseToggle.textContent = noise.enabled ? 'Noise On' : 'Noise Off';
+  noiseToggle.classList.toggle('active', noise.enabled);
+  noiseGuiToggle.textContent = noise.show_in_gui ? 'Show On' : 'Show Off';
+  noiseGuiToggle.classList.toggle('active', noise.show_in_gui);
+  const spSlider = document.getElementById('noise-self-pos-slider');
+  const saSlider = document.getElementById('noise-self-angle-slider');
+  const bSlider = document.getElementById('noise-ball-slider');
+  const orSlider = document.getElementById('noise-other-robot-slider');
+  if (document.activeElement !== spSlider) spSlider.value = Math.round(noise.self_pos * 100);
+  if (document.activeElement !== saSlider) saSlider.value = Math.round(noise.self_angle * 100);
+  if (document.activeElement !== bSlider) bSlider.value = Math.round(noise.ball * 100);
+  if (document.activeElement !== orSlider) orSlider.value = Math.round(noise.other_robot * 100);
+  document.getElementById('noise-self-pos-label').textContent = noise.self_pos.toFixed(2) + ' m';
+  document.getElementById('noise-self-angle-label').textContent = noise.self_angle.toFixed(2) + ' rad';
+  document.getElementById('noise-ball-label').textContent = noise.ball.toFixed(2) + ' m';
+  document.getElementById('noise-other-robot-label').textContent = noise.other_robot.toFixed(2) + ' m';
+
+  const fall = s.fall || {fall_prob: 0, recovery_sec: 52, robot_body_radius: 0.35, contact_distance: 0.84};
+  const fallEnabled = fall.fall_prob > 0;
+  const fallBtn = document.getElementById('btn-fall-enable');
+  fallBtn.textContent = fallEnabled ? 'Fall On' : 'Fall Off';
+  fallBtn.classList.toggle('active', fallEnabled);
+  const fpSlider = document.getElementById('fall-prob-slider');
+  const frSlider = document.getElementById('fall-recovery-slider');
+  if (document.activeElement !== fpSlider) fpSlider.value = Math.round(fall.fall_prob * 10000);
+  if (document.activeElement !== frSlider) frSlider.value = Math.round(fall.recovery_sec);
+  document.getElementById('fall-prob-label').textContent = fall.fall_prob.toFixed(4);
+  document.getElementById('fall-recovery-label').textContent = Math.round(fall.recovery_sec) + ' s';
+  document.getElementById('fall-contact-hint').textContent =
+    `충돌 반경 ${fall.robot_body_radius.toFixed(2)} m · 낙상 근접 기준 ${fall.contact_distance.toFixed(2)} m`;
+
+  const fov = s.fov || {angle_deg: 120, range_m: 8};
+  const faSlider = document.getElementById('fov-angle-slider');
+  const frRangeSlider = document.getElementById('fov-range-slider');
+  if (document.activeElement !== faSlider) faSlider.value = Math.round(fov.angle_deg);
+  if (document.activeElement !== frRangeSlider) frRangeSlider.value = Math.round(fov.range_m * 10);
+  document.getElementById('fov-angle-label').textContent = Math.round(fov.angle_deg) + '°';
+  document.getElementById('fov-range-label').textContent = fov.range_m.toFixed(1) + ' m';
+
+  document.getElementById('gc-state').textContent = String(gc.state_name || 'inactive').toUpperCase();
+  document.getElementById('gc-setplay').textContent = String(gc.set_play_name || 'inactive').toUpperCase();
+  document.getElementById('gc-packet').textContent = fmtMaybe(gc.packet_number);
+  document.getElementById('gc-clock').textContent =
+    gc.active ? `${fmtMaybe(gc.secs_remaining, 's')} / sec=${fmtMaybe(gc.secondary_time, 's')}` : '—';
+  document.getElementById('gc-kicking').textContent = fmtMaybe(gc.kicking_team);
+  document.getElementById('gc-teams').textContent =
+    `${fmtMaybe(gc.team_number)} vs ${fmtMaybe(gc.opponent_team_number)}`;
+  document.getElementById('gc-source').textContent = gc.source || 'waiting';
+  document.getElementById('gc-udp-path').textContent =
+    `${fmtMaybe(gc.data_port)} -> ${fmtMaybe(gc.return_port)}${gc.direct_udp_active ? ' active' : ''}`;
+
+  const flags = [];
+  flags.push(gc.motion_enabled ? 'motion enabled' : 'motion locked');
+  if (gc.direct_gc_required_for_motion) flags.push('direct gc required');
+  flags.push(gc.receive_direct_udp ? 'direct udp on' : 'direct udp off');
+  flags.push(gc.publish_gc_ros_topics ? 'gc ros pub on' : 'gc ros pub off');
+  if (gc.controller === 'external_topic') flags.push('topic gc observed');
+  if (gc.stopped) flags.push('stop play');
+  if (gc.first_half !== null && gc.first_half !== undefined) flags.push(gc.first_half ? '1st half' : '2nd half');
+  const flagsRoot = document.getElementById('gc-flags');
+  flagsRoot.innerHTML = '';
+  for (const label of flags) {
+    const chip = document.createElement('span');
+    chip.className = `chip ${label === 'motion enabled' ? 'ok' : ''}${label === 'motion locked' || label === 'stop play' ? ' warn' : ''}`;
+    chip.textContent = label;
+    flagsRoot.appendChild(chip);
+  }
+  renderPenaltyChips('gc-ally-penalties', gc.ally_penalized_players, 'none');
+  renderPenaltyChips('gc-opponent-penalties', gc.opponent_penalized_players, 'none');
+
+  if (gc.active) {
+    const summaryPrefix = gc.motion_enabled ? 'external GC' : 'external GC observed · motion locked';
+    document.getElementById('gc-summary').textContent =
+      `${summaryPrefix} · ${String(gc.state_name || 'unknown').toUpperCase()} · ${String(gc.set_play_name || 'none')}`;
+    document.getElementById('gc-detail').textContent = gc.motion_enabled
+      ? `source=${gc.source} · kick=${gc.kicking_team} · stop=${gc.stopped ? 'yes' : 'no'} · age=${(gc.age_sec ?? 0).toFixed(2)}s · players=${fmtMaybe(gc.players_per_team)}`
+      : `source=${gc.source} · ${motionLockMessage(gc)} · age=${(gc.age_sec ?? 0).toFixed(2)}s`;
+    document.getElementById('gc-score').textContent =
+      `score ${gc.ally_score} : ${gc.opponent_score} · team ${gc.team_number} vs ${gc.opponent_team_number}`;
+  } else {
+    document.getElementById('gc-summary').textContent = gc.motion_enabled
+      ? 'external GC inactive'
+      : 'external GC inactive · motion locked';
+    document.getElementById('gc-detail').textContent =
+      gc.motion_enabled
+        ? '외부 GC가 없어도 움직임 허용 상태입니다.'
+        : '외부 GC가 active 되기 전까지 로봇과 공의 자동 움직임을 잠급니다.';
+    document.getElementById('gc-score').textContent =
+      `team ${gc.team_number ?? '?'} vs ${gc.opponent_team_number ?? '?'}`;
+  }
+}
+
+function renderCards(containerId, entities, roleName) {
+  const cards = document.getElementById(containerId);
+  if (cards.children.length !== entities.length) {
+    cards.innerHTML = '';
+    for (const entity of entities) {
+      const div = document.createElement('div');
+      div.className = 'robot-card';
+      div.id = `${containerId}-${entity.id}`;
+      cards.appendChild(div);
+    }
+  }
+  for (const entity of entities) {
+    const div = document.getElementById(`${containerId}-${entity.id}`);
+    if (!div) continue;
+    div.dataset.team = entity.team;
+    div.dataset.id = entity.id;
+    div.style.cursor = 'pointer';
+    div.style.borderColor = entity.color;
+    div.innerHTML = `
+      <div class="name" style="color:${entity.fallen ? '#ff8c00' : entity.color}">
+        ${roleName} ${entity.id}
+        ${entity.role === 2 ? '<span class="badge" style="background:#ffdd0030;border:1px solid #ffdd00">GK</span>' : ''}
+        ${entity.selected ? '<span class="badge" style="background:#1a4a1a;border:1px solid #4a8a4a">SELECTED</span>' : ''}
+        ${entity.penalty ? '<span class="badge" style="background:#aa2222;color:#f88">PEN</span>' : ''}
+        ${entity.fallen ? '<span class="badge" style="background:#4a2000;border:1px solid #ff8c00;color:#ff8c00">FALLEN</span>' : ''}
+      </div>
+      <div class="row"><span>x</span><span class="val">${entity.x.toFixed(2)}</span></div>
+      <div class="row"><span>y</span><span class="val">${entity.y.toFixed(2)}</span></div>
+      <div class="row"><span>θ</span><span class="val">${(entity.theta * 180 / Math.PI).toFixed(0)}°</span></div>
+      <div class="row"><span>action</span><span class="val">${entity.fallen ? '💀 fallen' : (ACTION_ICON[entity.action] || '') + ' ' + entity.action}</span></div>
+    `;
+  }
+}
+
+function updateSidebar(s) {
+  document.getElementById('bx').textContent = s.ball.x.toFixed(2);
+  document.getElementById('by').textContent = s.ball.y.toFixed(2);
+  document.getElementById('ball-card').style.cursor = 'pointer';
+  document.getElementById('ball-card').style.borderColor = s.ball.selected ? '#8fff8f' : '#555';
+  renderCards('robot-cards', s.robots, 'Robot');
+  renderCards('opponent-cards', s.opponents, 'Opponent');
+}
+
+function manualCommandFromKeys() {
+  let vx = 0;
+  let vy = 0;
+  let omega = 0;
+  if (keyState.has('a')) vx -= 1;
+  if (keyState.has('d')) vx += 1;
+  if (keyState.has('w') || keyState.has('arrowup')) vy += 1;
+  if (keyState.has('s') || keyState.has('arrowdown')) vy -= 1;
+  if (keyState.has('q') || keyState.has('arrowleft')) omega += 1;
+  if (keyState.has('e') || keyState.has('arrowright')) omega -= 1;
+  const norm = Math.hypot(vx, vy);
+  if (norm > 1) {
+    vx /= norm;
+    vy /= norm;
+  }
+  return {vx, vy, omega};
+}
+
+function pushManualInput() {
+  if (!state || !state.manual.enabled) return;
+  const cmd = manualCommandFromKeys();
+  sendManualInput(cmd.vx, cmd.vy, cmd.omega);
+}
+
+window.addEventListener('keydown', (evt) => {
+  if (evt.target.tagName === 'INPUT' || evt.target.tagName === 'SELECT') return;
+  const key = evt.key.toLowerCase();
+  if (!['w','a','s','d','q','e','arrowup','arrowdown','arrowleft','arrowright'].includes(key)) return;
+  evt.preventDefault();
+  keyState.add(key);
+  pushManualInput();
+});
+
+window.addEventListener('keyup', (evt) => {
+  const key = evt.key.toLowerCase();
+  if (!keyState.has(key)) return;
+  keyState.delete(key);
+  pushManualInput();
+});
+
+
+document.getElementById('btn-noise-toggle').addEventListener('click', () => {
+  const current = state?.noise?.enabled ?? true;
+  sendNoise({enabled: !current});
+});
+
+document.getElementById('btn-noise-gui-toggle').addEventListener('click', () => {
+  const current = state?.noise?.show_in_gui ?? true;
+  sendNoise({show_in_gui: !current});
+});
+
+document.getElementById('noise-self-pos-slider').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value, 10) / 100;
+  document.getElementById('noise-self-pos-label').textContent = v.toFixed(2) + ' m';
+  sendNoise({self_pos: v});
+});
+
+document.getElementById('noise-self-angle-slider').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value, 10) / 100;
+  document.getElementById('noise-self-angle-label').textContent = v.toFixed(2) + ' rad';
+  sendNoise({self_angle: v});
+});
+
+document.getElementById('noise-ball-slider').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value, 10) / 100;
+  document.getElementById('noise-ball-label').textContent = v.toFixed(2) + ' m';
+  sendNoise({ball: v});
+});
+
+document.getElementById('noise-other-robot-slider').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value, 10) / 100;
+  document.getElementById('noise-other-robot-label').textContent = v.toFixed(2) + ' m';
+  sendNoise({other_robot: v});
+});
+
+document.getElementById('btn-fall-enable').addEventListener('click', () => {
+  const current = state?.fall?.fall_prob ?? 0;
+  const newProb = current > 0 ? 0 : 0.0015;
+  document.getElementById('fall-prob-slider').value = Math.round(newProb * 10000);
+  document.getElementById('fall-prob-label').textContent = newProb.toFixed(4);
+  sendFall({fall_prob: newProb});
+});
+
+document.getElementById('fall-prob-slider').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value, 10) / 10000;
+  document.getElementById('fall-prob-label').textContent = v.toFixed(4);
+  sendFall({fall_prob: v});
+});
+
+document.getElementById('fall-recovery-slider').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value, 10);
+  document.getElementById('fall-recovery-label').textContent = v + ' s';
+  sendFall({recovery_sec: v});
+});
+
+document.getElementById('btn-fov-show').addEventListener('click', () => {
+  _fovShowCones = !_fovShowCones;
+  document.getElementById('btn-fov-show').textContent = _fovShowCones ? 'Show On' : 'Show Off';
+  document.getElementById('btn-fov-show').classList.toggle('active', _fovShowCones);
+  if (state) render(state);
+});
+
+document.getElementById('fov-angle-slider').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value, 10);
+  document.getElementById('fov-angle-label').textContent = v + '°';
+  sendFov({angle_deg: v});
+});
+
+document.getElementById('fov-range-slider').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value, 10) / 10;
+  document.getElementById('fov-range-label').textContent = v.toFixed(1) + ' m';
+  sendFov({range_m: v});
+});
+
+document.getElementById('manual-target').addEventListener('change', (evt) => {
+  const [team, id] = evt.target.value.split(':');
+  if (team === 'none') {
+    clearSelection();
+    return;
+  }
+  selectTarget(team, Number(id), true);
+});
+
+document.getElementById('btn-manual').addEventListener('click', () => {
+  clearSelection();
+});
+
+document.getElementById('btn-stop-manual').addEventListener('click', () => {
+  keyState.clear();
+  sendManualInput(0, 0, 0);
+});
+
+document.getElementById('robot-cards').addEventListener('click', (evt) => {
+  const card = evt.target.closest('.robot-card');
+  if (!card) return;
+  selectTarget(card.dataset.team, Number(card.dataset.id), true);
+});
+
+document.getElementById('opponent-cards').addEventListener('click', (evt) => {
+  const card = evt.target.closest('.robot-card');
+  if (!card) return;
+  selectTarget(card.dataset.team, Number(card.dataset.id), true);
+});
+
+document.getElementById('ball-card').addEventListener('click', () => {
+  selectTarget('ball', 0, true);
+});
+
+setInterval(pushManualInput, 100);
+syncDisplayControls();
+
+let lastOk = 0;
+async function poll() {
+  try {
+    const res = await fetch('/api/state');
+    if (res.ok) {
+      state = await res.json();
+      render(state);
+      syncControls(state);
+      updateSidebar(state);
+      lastOk = Date.now();
+      const gcLabel = state.gc?.active
+        ? (state.gc?.motion_enabled
+            ? `GC ${String(state.gc.state_name || 'unknown').toUpperCase()}`
+            : 'GC observed-lock')
+        : (state.gc?.motion_enabled ? 'GC inactive' : 'GC wait-lock');
+      document.getElementById('status').textContent =
+        `${state.robots.length} allies / ${state.opponents.length} opponents | ` +
+        (state.paused ? '⏸ paused' : `▶ ${state.speed_mult.toFixed(1)}×`) +
+        ` | ${gcLabel}` +
+        (state.publish_udp ? ' | UDP on' : ' | UDP off');
+    }
+  } catch {
+    const ago = ((Date.now() - lastOk) / 1000).toFixed(0);
+    document.getElementById('status').textContent = `연결 끊김 (${ago}s)`;
+  }
+  setTimeout(poll, 100);
+}
+poll();
+</script>
+</body>
+</html>

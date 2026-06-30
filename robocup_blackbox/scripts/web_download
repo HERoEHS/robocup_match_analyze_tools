@@ -1,0 +1,549 @@
+#!/usr/bin/env python3
+"""Blackbox File Download — ROS2 node + HTTP server.
+
+Reads output_dir from record_profile.yaml (via config_path parameter) and
+serves a web UI for browsing and downloading .mcap sessions.
+
+Usage:
+    ros2 run robocup_blackbox web_download
+    ros2 run robocup_blackbox web_download --ros-args -p port:=8767
+    ros2 run robocup_blackbox web_download --ros-args -p config_path:=/path/to/record_profile.yaml
+    ros2 run robocup_blackbox web_download --ros-args -p output_dir:=~/blackbox_data
+"""
+
+import os
+import re
+import threading
+import time
+import urllib.parse
+import zipfile
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
+from pathlib import Path
+from typing import List, Tuple
+
+import rclpy
+import yaml
+from rclpy.executors import ExternalShutdownException
+from rclpy.node import Node
+
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+
+def _expand(path: str) -> str:
+    return str(Path(path).expanduser().resolve())
+
+
+def _human(n: int) -> str:
+    for unit in ('B', 'KB', 'MB', 'GB'):
+        if n < 1024:
+            return f'{n:.1f} {unit}'
+        n /= 1024
+    return f'{n:.1f} TB'
+
+
+def _safe(base: str, path: str) -> bool:
+    """Return True only if path resolves inside base (prevents traversal)."""
+    real_base = os.path.realpath(base)
+    real_path = os.path.realpath(path)
+    return real_path == real_base or real_path.startswith(real_base + os.sep)
+
+
+def _load_output_dir(config_path: str) -> str:
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f)
+    return _expand(cfg.get('output_dir', '~/blackbox_data'))
+
+
+def _find_default_config() -> str:
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        pkg = get_package_share_directory('robocup_blackbox')
+        return os.path.join(pkg, 'config', 'record_profile.yaml')
+    except Exception:
+        return ''
+
+
+def _scan_dir_files(dirpath: str) -> List[Tuple[str, float, int]]:
+    """Return (filepath, mtime, size) for regular files inside dirpath."""
+    result = []
+    try:
+        for e in os.scandir(dirpath):
+            if e.is_file():
+                st = e.stat()
+                result.append((e.path, st.st_mtime, st.st_size))
+    except OSError:
+        pass
+    return result
+
+
+def _sessions(output_dir: str) -> List[dict]:
+    """Find all rosbag2 session directories (*.mcap/) recursively and group splits.
+
+    Scans output_dir at any depth.  Directories that end in .mcap or .mcap.N
+    are treated as session parts; os.walk does not descend into them.
+    """
+    if not os.path.isdir(output_dir):
+        return []
+
+    # key = (rel_parent_dir, base_name)  →  [(split_idx, dirname, dirpath)]
+    by_base: dict = {}
+    for dirpath, dirnames, _ in os.walk(output_dir):
+        session_dirs, recurse_dirs = [], []
+        for d in dirnames:
+            if d.startswith('.'):
+                continue
+            if d.endswith('.mcap') or re.match(r'.+\.mcap\.\d+$', d):
+                session_dirs.append(d)
+            else:
+                recurse_dirs.append(d)
+        dirnames[:] = recurse_dirs  # don't descend into .mcap dirs
+
+        rel_parent = os.path.relpath(dirpath, output_dir)
+        for dname in session_dirs:
+            full_path = os.path.join(dirpath, dname)
+            if dname.endswith('.mcap'):
+                base_name, split_idx = dname[:-5], 0
+            else:
+                m = re.match(r'^(.+)\.mcap\.(\d+)$', dname)
+                base_name, split_idx = m.group(1), int(m.group(2))
+            key = (rel_parent, base_name)
+            by_base.setdefault(key, []).append((split_idx, dname, full_path))
+
+    now = time.time()
+    result = []
+    for (rel_parent, base_name), parts in by_base.items():
+        parts.sort(key=lambda x: x[0])
+        dir_list: List[Tuple[str, str]] = [(dname, dp) for _, dname, dp in parts]
+
+        total_size, mtime = 0, 0.0
+        for _, dp in dir_list:
+            for fp, mt, sz in _scan_dir_files(dp):
+                total_size += sz
+                mtime = max(mtime, mt)
+
+        folder = '' if rel_parent == '.' else rel_parent
+        # base is the URL key: folder/name (folder may be empty for root sessions)
+        base_key = (folder + '/' if folder else '') + base_name
+
+        result.append({
+            'base': base_key,
+            'name': base_name,
+            'folder': folder,
+            'dirs': dir_list,
+            'size': total_size,
+            'mtime': mtime,
+            'date': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(mtime)) if mtime else '—',
+            'recording': mtime > 0 and (now - mtime) < 30,
+        })
+
+    result.sort(key=lambda s: s['mtime'], reverse=True)
+    return result
+
+
+# ── Streaming zip ─────────────────────────────────────────────────────────────
+
+class _StreamSink:
+    """Non-seekable write-only wrapper for streaming ZIP without buffering.
+
+    Python's zipfile falls back to data-descriptor mode when seekable() is
+    False, tracking offsets via tell().  We satisfy that contract while
+    forwarding bytes directly to the HTTP response socket.
+    """
+    def __init__(self, wfile):
+        self._f = wfile
+        self._pos = 0
+
+    def write(self, data: bytes) -> int:
+        self._f.write(data)
+        self._pos += len(data)
+        return len(data)
+
+    def tell(self) -> int:
+        return self._pos
+
+    def seekable(self) -> bool:
+        return False
+
+    def flush(self):
+        pass
+
+
+# ── HTML page ─────────────────────────────────────────────────────────────────
+
+_CSS = """
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    color: #e0e0e0; min-height: 100vh; padding: 20px;
+}
+.container { max-width: 1300px; margin: 0 auto; }
+h1 {
+    text-align: center; color: #00d4ff; margin-bottom: 8px;
+    font-size: 2rem; text-shadow: 0 0 10px rgba(0,212,255,.3);
+}
+.subtitle { text-align: center; color: #666; font-size: .85rem; margin-bottom: 24px; word-break: break-all; }
+.toolbar {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px; flex-wrap: wrap; gap: 10px;
+}
+.btn {
+    padding: 8px 16px; border: none; border-radius: 6px;
+    cursor: pointer; font-size: .88rem; font-weight: 600; transition: opacity .15s;
+}
+.btn:hover { opacity: .85; }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+.btn-primary { background: #00d4ff; color: #1a1a2e; }
+.btn-secondary {
+    background: rgba(255,255,255,.1); color: #e0e0e0;
+    border: 1px solid rgba(255,255,255,.2);
+}
+.btn-dl { background: #4caf50; color: #fff; padding: 5px 12px; font-size: .82rem; }
+.card {
+    background: rgba(255,255,255,.05); border-radius: 12px;
+    border: 1px solid rgba(255,255,255,.1); overflow: hidden;
+}
+table { width: 100%; border-collapse: collapse; }
+thead th {
+    background: rgba(0,212,255,.1); color: #00d4ff;
+    padding: 11px 14px; text-align: left; font-weight: 600;
+    border-bottom: 1px solid rgba(0,212,255,.2);
+}
+tbody tr:hover { background: rgba(255,255,255,.03); }
+tbody td {
+    padding: 11px 14px; border-bottom: 1px solid rgba(255,255,255,.05);
+    vertical-align: middle;
+}
+tbody tr:last-child td { border-bottom: none; }
+td.name { font-family: monospace; font-size: .88rem; color: #fff; }
+td.date { color: #aaa; font-size: .88rem; white-space: nowrap; }
+td.size { color: #00d4ff; font-weight: 600; text-align: right; white-space: nowrap; }
+td.parts { color: #888; text-align: center; }
+td.actions { text-align: right; }
+.badge-rec {
+    display: inline-block; margin-left: 8px;
+    background: #4caf50; color: #fff; font-size: .7rem;
+    padding: 2px 6px; border-radius: 4px; vertical-align: middle;
+    animation: pulse 1.5s infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
+.empty { text-align: center; padding: 60px 20px; color: #555; font-size: 1.1rem; }
+.count { color: #888; font-size: .88rem; }
+.footer { text-align: center; margin-top: 20px; color: #555; font-size: .78rem; }
+input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; accent-color: #00d4ff; }
+@media (max-width: 700px) {
+    body { padding: 10px; } h1 { font-size: 1.5rem; } .hide-sm { display: none; }
+}
+"""
+
+_JS = """
+function updateBtn() {
+    var n = document.querySelectorAll('input[name="sessions"]:checked').length;
+    var btn = document.getElementById('zip-btn');
+    btn.disabled = n === 0;
+    btn.textContent = n > 0
+        ? 'Download ' + n + ' Session(s) as ZIP'
+        : 'Download Selected (ZIP)';
+}
+function toggleAll() {
+    var boxes = document.querySelectorAll('input[name="sessions"]');
+    var all = Array.from(boxes).every(function(b) { return b.checked; });
+    boxes.forEach(function(b) { b.checked = !all; });
+    updateBtn();
+}
+document.querySelectorAll('input[name="sessions"]').forEach(function(b) {
+    b.addEventListener('change', updateBtn);
+});
+"""
+
+
+def _render_page(output_dir: str, sessions: List[dict], port: int) -> str:
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+
+    if not sessions:
+        msg = (
+            f'Output directory not found:<br><code>{output_dir}</code>'
+            if not os.path.isdir(output_dir)
+            else 'No .mcap sessions found in output directory.'
+        )
+        table_html = f'<div class="empty">{msg}</div>'
+    else:
+        rows = []
+        for s in sessions:
+            base_enc = urllib.parse.quote(s['base'], safe='')
+            badge = '<span class="badge-rec">REC</span>' if s['recording'] else ''
+            folder_cell = f'<span style="color:#888;font-size:.82rem">{s["folder"]}</span>' if s['folder'] else ''
+            rows.append(
+                f'<tr>'
+                f'<td style="text-align:center;width:40px">'
+                f'<input type="checkbox" name="sessions" value="{s["base"]}">'
+                f'</td>'
+                f'<td class="name">{s["name"]}{badge}</td>'
+                f'<td class="hide-sm" style="color:#888;font-size:.82rem">{s["folder"]}</td>'
+                f'<td class="date hide-sm">{s["date"]}</td>'
+                f'<td class="parts hide-sm">{len(s["dirs"])}</td>'
+                f'<td class="size">{_human(s["size"])}</td>'
+                f'<td class="actions">'
+                f'<a href="/download?session={base_enc}">'
+                f'<button type="button" class="btn btn-dl">Download</button>'
+                f'</a>'
+                f'</td>'
+                f'</tr>'
+            )
+        table_html = (
+            '<table>'
+            '<thead><tr>'
+            '<th></th><th>Session</th>'
+            '<th class="hide-sm">Folder</th>'
+            '<th class="hide-sm">Date (local)</th>'
+            '<th class="hide-sm" style="text-align:center">Parts</th>'
+            '<th style="text-align:right">Size</th>'
+            '<th style="text-align:right">Download</th>'
+            '</tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody>'
+            '</table>'
+        )
+
+    return (
+        '<!DOCTYPE html><html lang="en"><head>'
+        '<meta charset="UTF-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+        '<title>Blackbox Download</title>'
+        f'<style>{_CSS}</style>'
+        '</head><body><div class="container">'
+        '<h1>Blackbox Download</h1>'
+        f'<div class="subtitle">{output_dir}</div>'
+        '<form id="form" action="/download-zip" method="post">'
+        '<div class="toolbar">'
+        '<div style="display:flex;gap:8px;align-items:center;">'
+        '<button type="button" class="btn btn-secondary" onclick="toggleAll()">Select All</button>'
+        f'<span class="count">{len(sessions)} session(s)</span>'
+        '</div>'
+        '<div style="display:flex;gap:8px;">'
+        '<a href="/"><button type="button" class="btn btn-secondary">Refresh</button></a>'
+        '<button type="submit" id="zip-btn" class="btn btn-primary" disabled>'
+        'Download Selected (ZIP)'
+        '</button>'
+        '</div>'
+        '</div>'
+        f'<div class="card">{table_html}</div>'
+        '</form>'
+        f'<div class="footer">Port {port} &bull; {now}</div>'
+        f'</div><script>{_JS}</script></body></html>'
+    )
+
+
+# ── HTTP handler ───────────────────────────────────────────────────────────────
+
+class _QuietHTTPServer(ThreadingMixIn, HTTPServer):
+    """Threaded HTTPServer that silently drops connection-reset errors."""
+    daemon_threads = True  # worker threads exit when main thread exits
+
+    def handle_error(self, request, client_address):
+        import sys
+        if isinstance(sys.exc_info()[1], (ConnectionResetError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
+
+
+class DownloadHandler(BaseHTTPRequestHandler):
+    output_dir: str = ''
+    port: int = 8767
+
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        qs = urllib.parse.parse_qs(parsed.query)
+
+        if parsed.path == '/':
+            sessions = _sessions(self.output_dir)
+            html = _render_page(self.output_dir, sessions, self.port)
+            data = html.encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        elif parsed.path == '/download':
+            base = qs.get('session', [None])[0]
+            if not base:
+                self._error(400, 'Missing session parameter')
+                return
+            self._download_session(base)
+
+        else:
+            self._error(404, 'Not found')
+
+    def do_POST(self):
+        if self.path != '/download-zip':
+            self._error(404, 'Not found')
+            return
+        length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(length).decode()
+        params = urllib.parse.parse_qs(body)
+        bases = params.get('sessions', [])
+        if not bases:
+            self._error(400, 'No sessions selected')
+            return
+        self._download_multi(bases)
+
+    def _download_session(self, base: str):
+        if not self._valid_base(base):
+            return
+        sessions = _sessions(self.output_dir)
+        session = next((s for s in sessions if s['base'] == base), None)
+        if not session:
+            self._error(404, f'Session not found: {base}')
+            return
+
+        self._stream_zip(base, self._collect_pairs(session['dirs']))
+
+    def _download_multi(self, bases: List[str]):
+        for b in bases:
+            if not self._valid_base(b, respond=False):
+                self._error(400, f'Invalid session name: {b}')
+                return
+        sessions = _sessions(self.output_dir)
+        by_base = {s['base']: s for s in sessions}
+        all_pairs: List[Tuple[str, str]] = []
+        for b in bases:
+            s = by_base.get(b)
+            if s:
+                all_pairs.extend(self._collect_pairs(s['dirs']))
+        if not all_pairs:
+            self._error(404, 'No files found for selected sessions')
+            return
+        self._stream_zip(f'blackbox_{time.strftime("%Y%m%d_%H%M%S")}', all_pairs)
+
+    def _collect_pairs(self, dir_list: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
+        pairs = []
+        for dirname, dirpath in dir_list:
+            if not _safe(self.output_dir, dirpath):
+                continue
+            for fp, _, _ in _scan_dir_files(dirpath):
+                if _safe(self.output_dir, fp):
+                    pairs.append((dirname + '/' + os.path.basename(fp), fp))
+        return pairs
+
+    def _stream_zip(self, zip_name: str, file_pairs: List[Tuple[str, str]]):
+        safe_pairs = [(arc, fp) for arc, fp in file_pairs if _safe(self.output_dir, fp)]
+        if not safe_pairs:
+            self._error(403, 'Access denied')
+            return
+        safe_name = re.sub(r'["\\/]', '_', zip_name)
+        try:
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/zip')
+            self.send_header('Content-Disposition', f'attachment; filename="{safe_name}.zip"')
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            sink = _StreamSink(self.wfile)
+            with zipfile.ZipFile(sink, 'w', zipfile.ZIP_STORED, allowZip64=True) as zf:
+                for arcname, filepath in safe_pairs:
+                    zf.write(filepath, arcname)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def _valid_base(self, base: str, respond: bool = True) -> bool:
+        # Prevent path traversal and null bytes; allow / for subfolder sessions
+        if '\x00' in base or '\\' in base or '..' in base.split('/'):
+            if respond:
+                self._error(400, 'Invalid session name')
+            return False
+        return True
+
+    def _error(self, code: int, msg: str):
+        body = msg.encode('utf-8')
+        self.send_response(code)
+        self.send_header('Content-Type', 'text/plain; charset=utf-8')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def address_string(self):
+        # Skip reverse DNS lookup — avoids multi-second delay on external clients
+        return self.client_address[0]
+
+    def log_message(self, fmt, *args):
+        ts = time.strftime('%H:%M:%S')
+        print(f'[{ts}] {fmt % args}')
+
+
+# ── ROS2 node ─────────────────────────────────────────────────────────────────
+
+class WebDownloadNode(Node):
+    def __init__(self):
+        super().__init__('web_download')
+
+        self.declare_parameter('config_path', '')
+        self.declare_parameter('output_dir', '')
+        self.declare_parameter('port', 8767)
+
+        config_path = self.get_parameter('config_path').get_parameter_value().string_value
+        output_dir_param = self.get_parameter('output_dir').get_parameter_value().string_value
+        port = self.get_parameter('port').get_parameter_value().integer_value
+
+        if output_dir_param:
+            output_dir = _expand(output_dir_param)
+        else:
+            if not config_path:
+                config_path = _find_default_config()
+            if not config_path or not os.path.isfile(config_path):
+                self.get_logger().fatal(
+                    'Cannot find record_profile.yaml. '
+                    'Set config_path or output_dir parameter.'
+                )
+                raise RuntimeError('Missing config')
+            output_dir = _load_output_dir(config_path)
+            self.get_logger().info(f'Config: {config_path}')
+
+        DownloadHandler.output_dir = output_dir
+        DownloadHandler.port = port
+
+        # HTTPServer sets SO_REUSEADDR, so the same port is reusable immediately
+        # after restart without waiting for TIME_WAIT to expire.
+        try:
+            self._server = _QuietHTTPServer(('', port), DownloadHandler)
+        except OSError as e:
+            self.get_logger().fatal(f'Port {port} unavailable: {e}')
+            raise RuntimeError(f'Port {port} unavailable') from e
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+
+        self.get_logger().info(f'Output dir : {output_dir}')
+        self.get_logger().info(f'Download UI: http://localhost:{port}')
+        self.get_logger().info(f'             http://192.168.10.2:{port}')
+
+    def destroy_node(self):
+        self._server.shutdown()
+        super().destroy_node()
+
+
+# ── Entry point ────────────────────────────────────────────────────────────────
+
+def main():
+    rclpy.init()
+    try:
+        node = WebDownloadNode()
+    except RuntimeError:
+        rclpy.shutdown()
+        return 1
+
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    except ExternalShutdownException:
+        pass
+    finally:
+        node.destroy_node()
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
